@@ -24,6 +24,51 @@ def translate_profile_path(*paths):
     return os.path.join(profile, *paths)
 
 
+def get_writable_cache_path(filename="cache.json"):
+    """
+    Get a writable cache path. Tries profile first, falls back to temp/cache if read-only.
+    Works on LibreELEC and other read-only filesystem setups.
+    """
+    # Try profile directory first
+    try:
+        profile_path = translate_profile_path(filename)
+        # Try to translate if it's a special:// path
+        if profile_path.startswith("special://"):
+            profile_path = xbmc.translatePath(profile_path)
+        
+        # Check if directory is writable
+        directory = os.path.dirname(profile_path)
+        if directory and os.path.exists(directory):
+            if os.access(directory, os.W_OK):
+                return profile_path
+        # Try to create directory
+        elif directory:
+            try:
+                os.makedirs(directory, exist_ok=True)
+                if os.access(directory, os.W_OK):
+                    return profile_path
+            except (OSError, IOError):
+                pass
+    except Exception:
+        pass
+    
+    # Fallback to temp directory (writable on LibreELEC)
+    try:
+        temp_path = xbmc.translatePath("special://temp/")
+        cache_dir = os.path.join(temp_path, "service.remove.black.bars.gbm")
+        os.makedirs(cache_dir, exist_ok=True)
+        return os.path.join(cache_dir, filename)
+    except Exception:
+        # Last resort: use /tmp if available
+        try:
+            cache_dir = "/tmp/service.remove.black.bars.gbm"
+            os.makedirs(cache_dir, exist_ok=True)
+            return os.path.join(cache_dir, filename)
+        except Exception:
+            # If all else fails, return None (cache will be disabled)
+            return None
+
+
 def is_local_file(path):
     if not path:
         return False
@@ -136,86 +181,74 @@ class KodiMetadataProvider:
 class JsonCacheProvider:
     def __init__(self, enabled=True):
         self.enabled = enabled
-        self.path = translate_profile_path("cache.json")
+        # Use writable cache path (works on LibreELEC)
+        self.path = get_writable_cache_path("cache.json")
         self._cache = {}
-        if self.enabled:
+        if self.enabled and self.path:
             self._ensure_dir()
             self._cache = self._load()
+        elif self.enabled and not self.path:
+            xbmc.log("service.remove.black.bars.gbm: No writable cache path available, cache disabled", level=xbmc.LOGWARNING)
+            self.enabled = False
 
     def _ensure_dir(self):
+        if not self.path:
+            return
         try:
+            # Path should already be translated by get_writable_cache_path
             directory = os.path.dirname(self.path)
             if directory:
-                # Handle special:// paths
-                if directory.startswith("special://"):
-                    # Try to translate the path
-                    try:
-                        directory = xbmc.translatePath(directory)
-                    except Exception:
-                        pass
                 # Create directory if it doesn't exist
-                if directory and not os.path.isdir(directory):
-                    os.makedirs(directory, exist_ok=True)
-                    xbmc.log(f"service.remove.black.bars.gbm: Created cache directory: {directory}", level=xbmc.LOGDEBUG)
+                if not os.path.isdir(directory):
+                    try:
+                        os.makedirs(directory, exist_ok=True)
+                        xbmc.log(f"service.remove.black.bars.gbm: Created cache directory: {directory}", level=xbmc.LOGDEBUG)
+                    except OSError as e:
+                        xbmc.log(f"service.remove.black.bars.gbm: Failed to create cache directory: {e}", level=xbmc.LOGWARNING)
         except Exception as e:
-            xbmc.log("service.remove.black.bars.gbm: Failed to ensure profile dir: " + str(e), level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to ensure cache dir: {e}", level=xbmc.LOGWARNING)
 
     def _load(self):
-        if not self.enabled:
+        if not self.enabled or not self.path:
             return {}
         try:
-            # Handle special:// paths
-            path = self.path
-            if path.startswith("special://"):
-                try:
-                    path = xbmc.translatePath(path)
-                except Exception:
-                    pass
-            if os.path.exists(path):
-                with open(path, "r", encoding="utf-8") as f:
+            # Path should already be translated by get_writable_cache_path
+            if os.path.exists(self.path):
+                with open(self.path, "r", encoding="utf-8") as f:
                     cache = json.load(f)
-                    xbmc.log(f"service.remove.black.bars.gbm: Loaded cache with {len(cache)} entries", level=xbmc.LOGDEBUG)
+                    xbmc.log(f"service.remove.black.bars.gbm: Loaded cache with {len(cache)} entries from {self.path}", level=xbmc.LOGDEBUG)
                     return cache
         except Exception as e:
-            xbmc.log("service.remove.black.bars.gbm: Failed to load cache: " + str(e), level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to load cache: {e}", level=xbmc.LOGWARNING)
         return {}
 
     def _save(self):
-        if not self.enabled:
+        if not self.enabled or not self.path:
             return
         try:
             # Ensure directory exists before saving
             self._ensure_dir()
-            # Handle special:// paths
-            path = self.path
-            if path.startswith("special://"):
-                try:
-                    path = xbmc.translatePath(path)
-                except Exception:
-                    pass
-            with open(path, "w", encoding="utf-8") as f:
+            
+            # Path should already be translated and writable by get_writable_cache_path
+            with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f)
-                xbmc.log(f"service.remove.black.bars.gbm: Saved cache with {len(self._cache)} entries", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Saved cache with {len(self._cache)} entries to {self.path}", level=xbmc.LOGDEBUG)
+        except OSError as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache: {e}", level=xbmc.LOGWARNING)
         except Exception as e:
-            xbmc.log("service.remove.black.bars.gbm: Failed to save cache: " + str(e), level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache: {e}", level=xbmc.LOGWARNING)
     
     def clear(self):
         """Clear the cache"""
         try:
             self._cache = {}
-            # Handle special:// paths
-            path = self.path
-            if path.startswith("special://"):
-                try:
-                    path = xbmc.translatePath(path)
-                except Exception:
-                    pass
-            if os.path.exists(path):
-                os.remove(path)
-                xbmc.log("service.remove.black.bars.gbm: Cache cleared", level=xbmc.LOGINFO)
+            # Path should already be translated by get_writable_cache_path
+            if self.path and os.path.exists(self.path):
+                os.remove(self.path)
+                xbmc.log(f"service.remove.black.bars.gbm: Cache cleared from {self.path}", level=xbmc.LOGINFO)
                 return True
         except Exception as e:
-            xbmc.log("service.remove.black.bars.gbm: Failed to clear cache: " + str(e), level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to clear cache: {e}", level=xbmc.LOGWARNING)
         return False
 
     def _make_key(self, title, year=None, imdb_id=None):

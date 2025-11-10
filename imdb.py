@@ -43,7 +43,7 @@ def getOriginalAspectRatio(title, imdb_number=None):
     try:
         xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Starting getOriginalAspectRatio with title='{title}', imdb_number='{imdb_number}'", level=xbmc.LOGDEBUG)
         
-        BASE_URL = "https://www.imdb.com/"
+        BASE_URL = "https://www.imdb.com"
         HEADERS = {
             'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'}
 
@@ -100,7 +100,10 @@ def getOriginalAspectRatio(title, imdb_number=None):
                 
                 imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0]
                 xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Extracted IMDb number from URL: {imdb_number}", level=xbmc.LOGDEBUG)
-                URL = BASE_URL + title_url.lstrip('/')
+                # Ensure title_url starts with / and combine with BASE_URL
+                if not title_url.startswith('/'):
+                    title_url = '/' + title_url
+                URL = BASE_URL + title_url
             else:
                 xbmc.log("service.remove.black.bars.gbm: [IMDb] No title found in IMDb search results with selector '.ipc-metadata-list-summary-item__t'", level=xbmc.LOGWARNING)
                 # Log page preview for debugging (only first 500 chars to avoid memory issues)
