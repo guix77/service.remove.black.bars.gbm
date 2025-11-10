@@ -77,35 +77,95 @@ def getOriginalAspectRatio(title, imdb_number=None):
             # lxml parser would have been better but not currently supported in Kodi
             soup = BeautifulSoup(search_page.text, 'html.parser')
 
-            # Use simple selector like old code
+            # Try multiple strategies to find the title link
+            title_url = None
+            
+            # Strategy 1: Find the title element and look for link in the same list item
             title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t')
             if title_url_tag:
                 xbmc.log("service.remove.black.bars.gbm: [IMDb] Found title element with selector '.ipc-metadata-list-summary-item__t'", level=xbmc.LOGDEBUG)
-                try:
-                    # Try to get href directly like old code
-                    title_url = title_url_tag['href']
-                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found href in title element: {title_url}", level=xbmc.LOGDEBUG)
-                except (KeyError, TypeError):
-                    # Fallback: try to find link inside
-                    xbmc.log("service.remove.black.bars.gbm: [IMDb] No 'href' in title element, looking for link inside", level=xbmc.LOGDEBUG)
-                    link_tag = title_url_tag.find('a', href=True)
+                # Find the parent <li> element
+                list_item = title_url_tag
+                for _ in range(5):  # Go up to 5 levels to find the <li>
+                    if list_item and list_item.name == 'li':
+                        break
+                    list_item = list_item.parent if list_item else None
+                
+                if list_item:
+                    # Look for the link with class 'ipc-title-link-wrapper' in the same <li>
+                    link_tag = list_item.find('a', class_='ipc-title-link-wrapper', href=True)
                     if link_tag:
                         title_url = link_tag.get('href')
-                        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found href in link inside: {title_url}", level=xbmc.LOGDEBUG)
+                        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found href in ipc-title-link-wrapper: {title_url}", level=xbmc.LOGDEBUG)
                     else:
-                        xbmc.log("service.remove.black.bars.gbm: [IMDb] No link found in title element", level=xbmc.LOGWARNING)
-                        # Clean up before returning
-                        soup = None
-                        return None
+                        # Fallback: look for any /title/ link in the same <li>
+                        link_tag = list_item.find('a', href=lambda x: x and '/title/tt' in x)
+                        if link_tag:
+                            title_url = link_tag.get('href')
+                            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found /title/ link in list item: {title_url}", level=xbmc.LOGDEBUG)
+            
+            # Strategy 2: Try to find link with title pattern directly in search results
+            if not title_url:
+                xbmc.log("service.remove.black.bars.gbm: [IMDb] Trying alternative strategy: searching for /title/ links", level=xbmc.LOGDEBUG)
+                # Find all links that contain /title/tt
+                all_links = soup.find_all('a', href=lambda x: x and '/title/tt' in x)
+                for link in all_links:
+                    href = link.get('href', '')
+                    # Check if it's in a result item (not navigation)
+                    parent = link.parent
+                    for _ in range(5):  # Check up to 5 levels up
+                        if parent:
+                            if hasattr(parent, 'get'):
+                                classes = parent.get('class', [])
+                                if classes:
+                                    # Check if it's in a search result item
+                                    if any('ipc-metadata-list-summary-item' in str(c) for c in classes) or \
+                                       any('find-result' in str(c) for c in classes):
+                                        title_url = href
+                                        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found /title/ link in search results: {title_url}", level=xbmc.LOGDEBUG)
+                                        break
+                            if title_url:
+                                break
+                            parent = parent.parent
+                        else:
+                            break
+                    if title_url:
+                        break
+            
+            if title_url:
+                # Extract IMDb number from URL (handles both /title/ and /fr/title/ formats)
+                # URL format: /fr/title/tt9737326/?ref_=fn_t_1 or /title/tt9737326/
+                imdb_number = None
+                if '/title/' in title_url:
+                    imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0].split("?")[0]
+                elif '/title/' in title_url.replace('/fr/', '/').replace('/en/', '/'):
+                    # Handle language prefix
+                    imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0].split("?")[0]
                 
-                imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0]
-                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Extracted IMDb number from URL: {imdb_number}", level=xbmc.LOGDEBUG)
-                # Ensure title_url starts with / and combine with BASE_URL
-                if not title_url.startswith('/'):
-                    title_url = '/' + title_url
-                URL = BASE_URL + title_url
+                if imdb_number:
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Extracted IMDb number from URL: {imdb_number}", level=xbmc.LOGDEBUG)
+                    # Normalize URL: remove language prefix and query params, ensure it starts with /
+                    # Convert /fr/title/tt9737326/?ref_=fn_t_1 to /title/tt9737326/
+                    normalized_url = title_url
+                    # Remove language prefix if present
+                    if '/fr/title/' in normalized_url or '/en/title/' in normalized_url:
+                        normalized_url = normalized_url.replace('/fr/title/', '/title/').replace('/en/title/', '/title/')
+                    # Remove query params
+                    if '?' in normalized_url:
+                        normalized_url = normalized_url.split('?')[0]
+                    # Ensure it starts with /
+                    if not normalized_url.startswith('/'):
+                        normalized_url = '/' + normalized_url
+                    # Ensure it ends with /
+                    if not normalized_url.endswith('/'):
+                        normalized_url = normalized_url + '/'
+                    URL = BASE_URL + normalized_url
+                else:
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Failed to extract IMDb number from URL: {title_url}", level=xbmc.LOGWARNING)
+                    soup = None
+                    return None
             else:
-                xbmc.log("service.remove.black.bars.gbm: [IMDb] No title found in IMDb search results with selector '.ipc-metadata-list-summary-item__t'", level=xbmc.LOGWARNING)
+                xbmc.log("service.remove.black.bars.gbm: [IMDb] No link found in IMDb search results", level=xbmc.LOGWARNING)
                 # Log page preview for debugging (only first 500 chars to avoid memory issues)
                 page_preview = search_page.text[:500] if len(search_page.text) > 500 else search_page.text
                 xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Page preview: {page_preview}", level=xbmc.LOGDEBUG)
