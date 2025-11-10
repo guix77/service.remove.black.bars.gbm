@@ -9,6 +9,12 @@ import xbmcgui
 
 from imdb import getOriginalAspectRatio
 
+# TODO: Improve IMDb/TVDB ID detection to be more robust across different providers
+# - Handle cases where uniqueid.imdb/tvdb may not be available
+# - Support more providers (Plex, Emby, local files, etc.)
+# - Consider using TVDB ID to find IMDb number for episodes
+# - Add fallback strategies for different metadata sources
+
 ZOOM_RATE_LIMIT_MS = 500
 
 
@@ -437,7 +443,51 @@ class Service(xbmc.Player):
                 return None
 
             title, year = self._extract_title_year(video_info_tag)
-            imdb_number = xbmc.getInfoLabel("VideoPlayer.IMDBNumber")
+            
+            # Try to get IMDb number from multiple sources
+            # For Jellyfin: use uniqueid.imdb for movies, uniqueid.tvdb for episodes (but TVDB can't be used directly for IMDb lookup)
+            imdb_number = None
+            media_type = None
+            try:
+                media_type = video_info_tag.getMediaType()
+            except Exception:
+                pass
+            
+            # Method 1: JSON-RPC Player.GetItem (most reliable for Jellyfin)
+            try:
+                json_cmd = json.dumps({
+                    "jsonrpc": "2.0",
+                    "method": "Player.GetItem",
+                    "params": {
+                        "playerid": 1,
+                        "properties": ["uniqueid", "imdbnumber"]
+                    },
+                    "id": 1
+                })
+                result = xbmc.executeJSONRPC(json_cmd)
+                if result:
+                    result_json = json.loads(result)
+                    if "result" in result_json and "item" in result_json["result"]:
+                        item = result_json["result"]["item"]
+                        item_type = item.get("type", media_type)
+                        
+                        # For movies: use uniqueid.imdb (no fallback, if not available will search by title)
+                        if item_type == "movie":
+                            if "uniqueid" in item and "imdb" in item["uniqueid"]:
+                                imdb_number = item["uniqueid"]["imdb"]
+                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb number from JSON-RPC uniqueid.imdb (movie): {imdb_number}", level=xbmc.LOGDEBUG)
+                        
+                        # For episodes: use uniqueid.imdb if available (no fallback, if not available will search by title)
+                        elif item_type == "episode":
+                            if "uniqueid" in item and "imdb" in item["uniqueid"]:
+                                imdb_number = item["uniqueid"]["imdb"]
+                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb number from JSON-RPC uniqueid.imdb (episode): {imdb_number}", level=xbmc.LOGDEBUG)
+                            elif "uniqueid" in item and "tvdb" in item["uniqueid"]:
+                                tvdb_id = item["uniqueid"]["tvdb"]
+                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Found TVDB ID for episode: {tvdb_id} (cannot use for IMDb, will search by title)", level=xbmc.LOGDEBUG)
+            except Exception as e:
+                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Failed to get IMDb from JSON-RPC: {e}", level=xbmc.LOGDEBUG)
+            
             # Normalize IMDb number: add "tt" prefix if it's just a number
             if imdb_number and imdb_number.isdigit():
                 imdb_number = "tt" + imdb_number
