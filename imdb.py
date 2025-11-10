@@ -65,7 +65,7 @@ def getOriginalAspectRatio(title, imdb_number=None):
                 xbmc.log("service.remove.black.bars.gbm: [IMDb] No title provided for IMDb search", level=xbmc.LOGWARNING)
                 return None
                 
-            URL = BASE_URL + "find/?q={}".format(title)
+            URL = BASE_URL + "/find/?q={}".format(title)
             xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Searching IMDb with URL: {URL}", level=xbmc.LOGDEBUG)
             search_page, error = _fetch_with_retry(URL, HEADERS)
             if error:
