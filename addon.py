@@ -39,23 +39,95 @@ def is_local_file(path):
 
 class KodiMetadataProvider:
     def get_aspect_ratio(self, video_info_tag):
+        # Try method 1: getAspectRatio() (documented in some forums)
         try:
-            # Preferred: direct float if available
+            if hasattr(video_info_tag, "getAspectRatio"):
+                xbmc.log("service.remove.black.bars.gbm: video_info_tag has getAspectRatio method", level=xbmc.LOGDEBUG)
+                try:
+                    value = video_info_tag.getAspectRatio()
+                    xbmc.log(f"service.remove.black.bars.gbm: getAspectRatio() returned: {value}", level=xbmc.LOGDEBUG)
+                    if value:
+                        ratio = int((float(value) + 0.005) * 100)
+                        xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from getAspectRatio: {ratio}", level=xbmc.LOGDEBUG)
+                        return ratio
+                except Exception as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error calling getAspectRatio(): {e}", level=xbmc.LOGDEBUG)
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error checking getAspectRatio: {e}", level=xbmc.LOGDEBUG)
+        
+        # Try method 2: getVideoAspectRatio() (alternative name)
+        try:
             if hasattr(video_info_tag, "getVideoAspectRatio"):
-                value = video_info_tag.getVideoAspectRatio()
-                if value:
-                    return int((float(value) + 0.005) * 100)
-        except Exception:
-            pass
+                xbmc.log("service.remove.black.bars.gbm: video_info_tag has getVideoAspectRatio method", level=xbmc.LOGDEBUG)
+                try:
+                    value = video_info_tag.getVideoAspectRatio()
+                    xbmc.log(f"service.remove.black.bars.gbm: getVideoAspectRatio() returned: {value}", level=xbmc.LOGDEBUG)
+                    if value:
+                        ratio = int((float(value) + 0.005) * 100)
+                        xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from getVideoAspectRatio: {ratio}", level=xbmc.LOGDEBUG)
+                        return ratio
+                    else:
+                        xbmc.log("service.remove.black.bars.gbm: getVideoAspectRatio() returned None/empty", level=xbmc.LOGDEBUG)
+                except Exception as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error calling getVideoAspectRatio(): {e}", level=xbmc.LOGDEBUG)
+            else:
+                xbmc.log("service.remove.black.bars.gbm: video_info_tag does not have getVideoAspectRatio method", level=xbmc.LOGDEBUG)
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error checking getVideoAspectRatio: {e}", level=xbmc.LOGDEBUG)
+        
         try:
+            xbmc.log("service.remove.black.bars.gbm: Trying VideoPlayer.AspectRatio info label", level=xbmc.LOGDEBUG)
             label = xbmc.getInfoLabel("VideoPlayer.AspectRatio")
+            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.AspectRatio returned: '{label}'", level=xbmc.LOGDEBUG)
             if not label:
+                xbmc.log("service.remove.black.bars.gbm: VideoPlayer.AspectRatio is empty", level=xbmc.LOGDEBUG)
                 return None
             # Common formats: "1.78" or "1.78:1"
             cleaned = label.split(":")[0].strip()
-            return int((float(cleaned) + 0.005) * 100)
-        except Exception:
+            xbmc.log(f"service.remove.black.bars.gbm: Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
+            ratio = int((float(cleaned) + 0.005) * 100)
+            xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from info label: {ratio}", level=xbmc.LOGDEBUG)
+            return ratio
+        except ValueError as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error parsing VideoPlayer.AspectRatio '{label}': {e}", level=xbmc.LOGWARNING)
             return None
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error getting VideoPlayer.AspectRatio: {e}", level=xbmc.LOGDEBUG)
+        
+        # Try method 4: JSON-RPC Player.GetProperties
+        try:
+            xbmc.log("service.remove.black.bars.gbm: Trying JSON-RPC Player.GetProperties", level=xbmc.LOGDEBUG)
+            json_cmd = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "Player.GetProperties",
+                "params": {
+                    "playerid": 1,
+                    "properties": ["streamdetails"]
+                },
+                "id": 1
+            })
+            result = xbmc.executeJSONRPC(json_cmd)
+            xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC result: {result[:200] if result else 'None'}", level=xbmc.LOGDEBUG)
+            if result:
+                try:
+                    result_json = json.loads(result)
+                    if "result" in result_json and "streamdetails" in result_json["result"]:
+                        streamdetails = result_json["result"]["streamdetails"]
+                        if "video" in streamdetails and len(streamdetails["video"]) > 0:
+                            video_stream = streamdetails["video"][0]
+                            if "aspect" in video_stream:
+                                aspect = video_stream["aspect"]
+                                xbmc.log(f"service.remove.black.bars.gbm: Found aspect ratio from JSON-RPC: {aspect}", level=xbmc.LOGDEBUG)
+                                # Convert to integer format (e.g., 1.78 -> 178)
+                                ratio = int((float(aspect) + 0.005) * 100)
+                                xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from JSON-RPC: {ratio}", level=xbmc.LOGDEBUG)
+                                return ratio
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error parsing JSON-RPC result: {e}", level=xbmc.LOGDEBUG)
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error with JSON-RPC Player.GetProperties: {e}", level=xbmc.LOGDEBUG)
+        
+        return None
 
 
 class JsonCacheProvider:
