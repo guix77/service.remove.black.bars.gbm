@@ -295,7 +295,11 @@ class Service(xbmc.Player):
             imdb_enabled = self._addon.getSetting("enable_imdb") == "true"
         except Exception:
             imdb_enabled = False
-        return imdb_enabled
+        try:
+            zoom_narrow_ratios = self._addon.getSetting("zoom_narrow_ratios") == "true"
+        except Exception:
+            zoom_narrow_ratios = False
+        return imdb_enabled, zoom_narrow_ratios
 
     def _get_cache_enabled(self):
         try:
