@@ -39,6 +39,14 @@ def getOriginalAspectRatio(title, imdb_number=None):
         HEADERS = {
             'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'}
 
+        # Normalize IMDb number: add "tt" prefix if it's just a number
+        if imdb_number:
+            imdb_str = str(imdb_number)
+            if imdb_str.isdigit():
+                imdb_number = "tt" + imdb_str
+            elif not imdb_str.startswith("tt"):
+                imdb_number = "tt" + imdb_str
+        
         if imdb_number and str(imdb_number).startswith("tt"):
             URL = "{}/title/{}/".format(BASE_URL, imdb_number)
         else:
@@ -59,30 +67,53 @@ def getOriginalAspectRatio(title, imdb_number=None):
             title_url_tag = None
             title_url = None
             
-            # Strategy 1: Direct link selector
-            title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t a')
-            if title_url_tag:
-                xbmc.log("service.remove.black.bars.gbm: Found link with selector '.ipc-metadata-list-summary-item__t a'", level=xbmc.LOGDEBUG)
-            else:
-                # Strategy 2: Find title element then link inside
+            # Strategy 1: Try finding result container first
+            result_container = soup.find('ul', class_='ipc-metadata-list') or soup.find('ul', class_='findList')
+            if result_container:
+                xbmc.log("service.remove.black.bars.gbm: Found result container", level=xbmc.LOGDEBUG)
+                # Try to find first result link
+                first_result = result_container.find('a', href=lambda h: h and '/title/tt' in h)
+                if first_result:
+                    title_url_tag = first_result
+                    xbmc.log("service.remove.black.bars.gbm: Found first result link in container", level=xbmc.LOGDEBUG)
+            
+            # Strategy 2: Direct link selector
+            if not title_url_tag:
+                title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t a')
+                if title_url_tag:
+                    xbmc.log("service.remove.black.bars.gbm: Found link with selector '.ipc-metadata-list-summary-item__t a'", level=xbmc.LOGDEBUG)
+            
+            # Strategy 3: Find title element then link inside
+            if not title_url_tag:
                 title_element = soup.select_one('.ipc-metadata-list-summary-item__t')
                 if title_element:
                     xbmc.log("service.remove.black.bars.gbm: Found title element, looking for link inside", level=xbmc.LOGDEBUG)
-                    title_url_tag = title_element.find('a')
-                    if not title_url_tag:
-                        # Try finding any link in the element
+                    # Try parent link
+                    parent = title_element.parent
+                    if parent and parent.name == 'a':
+                        title_url_tag = parent
+                        xbmc.log("service.remove.black.bars.gbm: Found link in parent of title element", level=xbmc.LOGDEBUG)
+                    else:
+                        # Try finding any link in the element or nearby
                         title_url_tag = title_element.find('a', href=True)
-                else:
-                    # Strategy 3: Try alternative selectors
-                    xbmc.log("service.remove.black.bars.gbm: Trying alternative selectors", level=xbmc.LOGDEBUG)
-                    # Try finding any link with /title/ in href
-                    all_links = soup.find_all('a', href=True)
-                    for link in all_links:
-                        href = link.get('href', '')
-                        if '/title/tt' in href:
-                            title_url_tag = link
-                            xbmc.log(f"service.remove.black.bars.gbm: Found link with /title/tt: {href[:100]}", level=xbmc.LOGDEBUG)
-                            break
+                        if not title_url_tag:
+                            # Try next sibling
+                            next_sibling = title_element.find_next_sibling('a', href=True)
+                            if next_sibling:
+                                title_url_tag = next_sibling
+                                xbmc.log("service.remove.black.bars.gbm: Found link in next sibling", level=xbmc.LOGDEBUG)
+            
+            # Strategy 4: Try alternative selectors - find any link with /title/tt
+            if not title_url_tag:
+                xbmc.log("service.remove.black.bars.gbm: Trying alternative selectors", level=xbmc.LOGDEBUG)
+                # Try finding any link with /title/ in href (prioritize first result)
+                all_links = soup.find_all('a', href=True)
+                for link in all_links:
+                    href = link.get('href', '')
+                    if '/title/tt' in href:
+                        title_url_tag = link
+                        xbmc.log(f"service.remove.black.bars.gbm: Found link with /title/tt: {href[:100]}", level=xbmc.LOGDEBUG)
+                        break
             
             if title_url_tag:
                 # Log what we found

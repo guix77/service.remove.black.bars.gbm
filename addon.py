@@ -69,60 +69,12 @@ class KodiMetadataProvider:
             xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect FAILED (exception): {e}", level=xbmc.LOGDEBUG)
             results["VideoPlayer.VideoAspect"] = None
         
-        # Try method 2: ListItem.VideoAspect (documented in Emby forum)
+        # Try method 2: JSON-RPC Player.GetItem (works for Jellyfin/streaming)
         try:
-            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying ListItem.VideoAspect info label", level=xbmc.LOGDEBUG)
-            label = xbmc.getInfoLabel("ListItem.VideoAspect")
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] ListItem.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
-            if label and label != "ListItem.VideoAspect":
-                # Format might be "2.35AR" or "2.35" or "2.35:1"
-                # Remove "AR" suffix if present
-                cleaned = label.replace("AR", "").split(":")[0].strip()
-                xbmc.log(f"service.remove.black.bars.gbm: [TEST] Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
-                try:
-                    ratio = int((float(cleaned) + 0.005) * 100)
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] ListItem.VideoAspect SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["ListItem.VideoAspect"] = ratio
-                except ValueError as e:
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] ListItem.VideoAspect FAILED (parse error): {e}", level=xbmc.LOGWARNING)
-                    results["ListItem.VideoAspect"] = None
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [TEST] ListItem.VideoAspect FAILED (not available)", level=xbmc.LOGDEBUG)
-                results["ListItem.VideoAspect"] = None
-        except Exception as e:
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] ListItem.VideoAspect FAILED (exception): {e}", level=xbmc.LOGDEBUG)
-            results["ListItem.VideoAspect"] = None
-        
-        # Try method 3: VideoPlayer.AspectRatio (fallback, may not work)
-        try:
-            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying VideoPlayer.AspectRatio info label", level=xbmc.LOGDEBUG)
-            label = xbmc.getInfoLabel("VideoPlayer.AspectRatio")
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.AspectRatio returned: '{label}'", level=xbmc.LOGDEBUG)
-            # If getInfoLabel returns the label name itself, it means the label is not available
-            if not label or label == "VideoPlayer.AspectRatio":
-                xbmc.log("service.remove.black.bars.gbm: [TEST] VideoPlayer.AspectRatio FAILED (not available)", level=xbmc.LOGDEBUG)
-                results["VideoPlayer.AspectRatio"] = None
-            else:
-                # Common formats: "1.78" or "1.78:1"
-                cleaned = label.split(":")[0].strip()
-                xbmc.log(f"service.remove.black.bars.gbm: [TEST] Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
-                try:
-                    ratio = int((float(cleaned) + 0.005) * 100)
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.AspectRatio SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["VideoPlayer.AspectRatio"] = ratio
-                except ValueError as e:
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.AspectRatio FAILED (parse error): {e}", level=xbmc.LOGWARNING)
-                    results["VideoPlayer.AspectRatio"] = None
-        except Exception as e:
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.AspectRatio FAILED (exception): {e}", level=xbmc.LOGDEBUG)
-            results["VideoPlayer.AspectRatio"] = None
-        
-        # Try method 4: JSON-RPC Player.GetProperties (may work for Jellyfin/streaming)
-        try:
-            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying JSON-RPC Player.GetProperties", level=xbmc.LOGDEBUG)
+            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying JSON-RPC Player.GetItem", level=xbmc.LOGDEBUG)
             json_cmd = json.dumps({
                 "jsonrpc": "2.0",
-                "method": "Player.GetProperties",
+                "method": "Player.GetItem",
                 "params": {
                     "playerid": 1,
                     "properties": ["streamdetails"]
@@ -134,25 +86,30 @@ class KodiMetadataProvider:
             if result:
                 try:
                     result_json = json.loads(result)
-                    if "result" in result_json and "streamdetails" in result_json["result"]:
-                        streamdetails = result_json["result"]["streamdetails"]
-                        if "video" in streamdetails and len(streamdetails["video"]) > 0:
-                            video_stream = streamdetails["video"][0]
-                            if "aspect" in video_stream:
-                                aspect = video_stream["aspect"]
-                                xbmc.log(f"service.remove.black.bars.gbm: [TEST] Found aspect ratio from JSON-RPC: {aspect}", level=xbmc.LOGDEBUG)
-                                # Convert to integer format (e.g., 1.78 -> 178)
-                                ratio = int((float(aspect) + 0.005) * 100)
-                                xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                                results["JSON-RPC"] = ratio
+                    if "result" in result_json and "item" in result_json["result"]:
+                        item = result_json["result"]["item"]
+                        if "streamdetails" in item and "video" in item["streamdetails"]:
+                            video_streams = item["streamdetails"]["video"]
+                            if len(video_streams) > 0:
+                                video_stream = video_streams[0]
+                                if "aspect" in video_stream:
+                                    aspect = video_stream["aspect"]
+                                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] Found aspect ratio from JSON-RPC: {aspect}", level=xbmc.LOGDEBUG)
+                                    # Convert to integer format (e.g., 1.78 -> 178)
+                                    ratio = int((float(aspect) + 0.005) * 100)
+                                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC SUCCESS: {ratio}", level=xbmc.LOGINFO)
+                                    results["JSON-RPC"] = ratio
+                                else:
+                                    xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no 'aspect' in video stream)", level=xbmc.LOGDEBUG)
+                                    results["JSON-RPC"] = None
                             else:
-                                xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no 'aspect' in video stream)", level=xbmc.LOGDEBUG)
+                                xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no video stream)", level=xbmc.LOGDEBUG)
                                 results["JSON-RPC"] = None
                         else:
-                            xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no video stream)", level=xbmc.LOGDEBUG)
+                            xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no streamdetails in item)", level=xbmc.LOGDEBUG)
                             results["JSON-RPC"] = None
                     else:
-                        xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no streamdetails in result)", level=xbmc.LOGDEBUG)
+                        xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no item in result)", level=xbmc.LOGDEBUG)
                         results["JSON-RPC"] = None
                 except (json.JSONDecodeError, KeyError, ValueError) as e:
                     xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (parse error): {e}", level=xbmc.LOGDEBUG)
@@ -313,6 +270,7 @@ class IMDbProvider:
 class ZoomApplier:
     def __init__(self):
         self.last_zoom_time_ms = 0
+        self.last_applied_ratio = None
 
     def _is_video_playing_fullscreen(self, player):
         try:
@@ -339,6 +297,11 @@ class ZoomApplier:
 
     def apply_zoom(self, detected_ratio, player):
         try:
+            # Skip if same ratio already applied
+            if self.last_applied_ratio == detected_ratio:
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom already applied for ratio {detected_ratio}, skipping", level=xbmc.LOGDEBUG)
+                return False
+            
             now_ms = int(time.time() * 1000)
             if now_ms - self.last_zoom_time_ms < ZOOM_RATE_LIMIT_MS:
                 xbmc.log("service.remove.black.bars.gbm: Zoom rate limited", level=xbmc.LOGDEBUG)
@@ -363,6 +326,7 @@ class ZoomApplier:
             result = xbmc.executeJSONRPC(json_cmd)
             xbmc.log(f"service.remove.black.bars.gbm: JSONRPC result: {result}", level=xbmc.LOGDEBUG)
             self.last_zoom_time_ms = now_ms
+            self.last_applied_ratio = detected_ratio
             if zoom_amount > 1.0:
                 notify("Zoom applied {:.2f}".format(zoom_amount))
             return True
@@ -441,6 +405,9 @@ class Service(xbmc.Player):
 
             title, year = self._extract_title_year(video_info_tag)
             imdb_number = xbmc.getInfoLabel("VideoPlayer.IMDBNumber")
+            # Normalize IMDb number: add "tt" prefix if it's just a number
+            if imdb_number and imdb_number.isdigit():
+                imdb_number = "tt" + imdb_number
             xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Detecting ratio for title={title}, year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
 
             results = {}  # Store results from all providers
@@ -523,11 +490,16 @@ class Service(xbmc.Player):
         self.on_av_started()
 
     def onAVChange(self):
-        self.on_av_change()
+        # Disabled to avoid loop: changing zoom triggers onAVChange which re-applies zoom
+        # Only use on_av_started for initial detection
+        # self.on_av_change()
+        pass
 
     def on_av_started(self):
         try:
             xbmc.log("service.remove.black.bars.gbm: on_av_started called", level=xbmc.LOGINFO)
+            # Reset last applied ratio for new video
+            self.zoom.last_applied_ratio = None
             enabled, _ = self._read_settings()
             xbmc.log(f"service.remove.black.bars.gbm: Automatically execute enabled: {enabled}", level=xbmc.LOGINFO)
             if not enabled:
@@ -559,12 +531,14 @@ class Service(xbmc.Player):
     def onPlayBackStopped(self):
         try:
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
+            self.zoom.last_applied_ratio = None
         except Exception:
             pass
 
     def onPlayBackEnded(self):
         try:
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
+            self.zoom.last_applied_ratio = None
         except Exception:
             pass
 
