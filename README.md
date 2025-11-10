@@ -14,6 +14,10 @@ A Kodi addon that automatically removes black bars by applying intelligent zoom 
 - Local cache for improved performance
 - Designed for GBM architecture without RenderCapture
 
+## Credits
+
+Inspired from https://github.com/osumoclement/script.black.bars.never
+
 ## License
 
 MIT - See [LICENSE](LICENSE) file for details.
