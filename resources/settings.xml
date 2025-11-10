@@ -3,6 +3,7 @@
     <category label="General">
         <setting id="enable_imdb" type="bool" label="Enable IMDb (uses internet)" default="true"/>
         <setting id="enable_cache" type="bool" label="Enable IMDb cache" default="true"/>
+        <setting id="zoom_narrow_ratios" type="bool" label="Zoom narrow ratios (4:3, etc.)" default="false"/>
         <setting id="clear_cache" type="action" label="Clear IMDb cache" action="RunAddon(service.remove.black.bars.gbm,clear_cache)"/>
     </category>
 </settings>

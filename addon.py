@@ -7,6 +7,13 @@ import xbmc
 import xbmcaddon
 import xbmcgui
 
+try:
+    import xbmcvfs
+    translatePath = xbmcvfs.translatePath
+except ImportError:
+    # Fallback for older Kodi versions
+    translatePath = xbmc.translatePath
+
 from imdb import getOriginalAspectRatio
 
 # TODO: Improve IMDb/TVDB ID detection to be more robust across different providers
@@ -24,85 +31,46 @@ def notify(msg):
 
 def translate_profile_path(*paths):
     try:
-        profile = xbmc.translatePath(xbmcaddon.Addon().getAddonInfo("profile"))
+        profile = translatePath(xbmcaddon.Addon().getAddonInfo("profile"))
     except Exception:
         profile = xbmcaddon.Addon().getAddonInfo("profile")
+        if profile.startswith("special://"):
+            profile = translatePath(profile)
     return os.path.join(profile, *paths)
 
 
 def get_writable_cache_path(filename="cache.json"):
     """
-    Get a writable cache path. Tries multiple persistent locations before falling back to temp.
-    Works on LibreELEC and other read-only filesystem setups.
-    Priority order:
-    1. Addon profile directory (special://profile/addon_data/...) - persistent
-    2. Userdata directory (special://userdata/addon_data/...) - persistent
-    3. Home directory (special://home/userdata/addon_data/...) - persistent on LibreELEC
-    4. Temp directory (special://temp/...) - may be cleared on reboot
-    5. /tmp/ - last resort, cleared on reboot
+    Get a writable cache path using the addon profile directory.
+    Returns None if the profile directory is not writable (cache disabled).
     """
-    # Strategy 1: Try addon profile directory (most standard, persistent)
     try:
         profile_path = translate_profile_path(filename)
-        if profile_path.startswith("special://"):
-            profile_path = xbmc.translatePath(profile_path)
         directory = os.path.dirname(profile_path)
         if directory:
             try:
                 os.makedirs(directory, exist_ok=True)
-            except (OSError, IOError):
-                pass
+                xbmc.log(f"service.remove.black.bars.gbm: Attempting to use profile cache directory: {profile_path}", level=xbmc.LOGDEBUG)
+            except (OSError, IOError) as e:
+                xbmc.log(f"service.remove.black.bars.gbm: Failed to create profile cache directory: {e}", level=xbmc.LOGDEBUG)
+                return None
             if os.path.exists(directory) and os.access(directory, os.W_OK):
-                xbmc.log(f"service.remove.black.bars.gbm: Using profile cache directory: {profile_path}", level=xbmc.LOGDEBUG)
-                return profile_path
+                # Test write access
+                try:
+                    test_file = os.path.join(directory, ".test_write")
+                    with open(test_file, "w") as f:
+                        f.write("test")
+                    os.remove(test_file)
+                    xbmc.log(f"service.remove.black.bars.gbm: Profile cache directory is writable: {profile_path}", level=xbmc.LOGDEBUG)
+                    return profile_path
+                except Exception as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Profile cache directory not writable: {e}", level=xbmc.LOGDEBUG)
+                    return None
     except Exception as e:
         xbmc.log(f"service.remove.black.bars.gbm: Profile directory not available: {e}", level=xbmc.LOGDEBUG)
     
-    # Strategy 2: Try userdata/addon_data directory (persistent)
-    try:
-        userdata_path = xbmc.translatePath("special://userdata/addon_data/service.remove.black.bars.gbm/")
-        os.makedirs(userdata_path, exist_ok=True)
-        if os.path.exists(userdata_path) and os.access(userdata_path, os.W_OK):
-            cache_path = os.path.join(userdata_path, filename)
-            xbmc.log(f"service.remove.black.bars.gbm: Using userdata cache directory: {cache_path}", level=xbmc.LOGDEBUG)
-            return cache_path
-    except Exception as e:
-        xbmc.log(f"service.remove.black.bars.gbm: Userdata directory not available: {e}", level=xbmc.LOGDEBUG)
-    
-    # Strategy 3: Try home/userdata/addon_data directory (persistent on LibreELEC)
-    try:
-        home_path = xbmc.translatePath("special://home/userdata/addon_data/service.remove.black.bars.gbm/")
-        os.makedirs(home_path, exist_ok=True)
-        if os.path.exists(home_path) and os.access(home_path, os.W_OK):
-            cache_path = os.path.join(home_path, filename)
-            xbmc.log(f"service.remove.black.bars.gbm: Using home cache directory: {cache_path}", level=xbmc.LOGDEBUG)
-            return cache_path
-    except Exception as e:
-        xbmc.log(f"service.remove.black.bars.gbm: Home directory not available: {e}", level=xbmc.LOGDEBUG)
-    
-    # Strategy 4: Fallback to temp directory (may be cleared on reboot, but writable on LibreELEC)
-    try:
-        temp_path = xbmc.translatePath("special://temp/")
-        cache_dir = os.path.join(temp_path, "service.remove.black.bars.gbm")
-        os.makedirs(cache_dir, exist_ok=True)
-        cache_path = os.path.join(cache_dir, filename)
-        xbmc.log(f"service.remove.black.bars.gbm: Using temp cache directory (may be cleared on reboot): {cache_path}", level=xbmc.LOGWARNING)
-        return cache_path
-    except Exception as e:
-        xbmc.log(f"service.remove.black.bars.gbm: Temp directory not available: {e}", level=xbmc.LOGDEBUG)
-    
-    # Strategy 5: Last resort: use /tmp if available (will be cleared on reboot)
-    try:
-        cache_dir = "/tmp/service.remove.black.bars.gbm"
-        os.makedirs(cache_dir, exist_ok=True)
-        cache_path = os.path.join(cache_dir, filename)
-        xbmc.log(f"service.remove.black.bars.gbm: Using /tmp cache directory (will be cleared on reboot): {cache_path}", level=xbmc.LOGWARNING)
-        return cache_path
-    except Exception as e:
-        xbmc.log(f"service.remove.black.bars.gbm: /tmp directory not available: {e}", level=xbmc.LOGWARNING)
-    
-    # If all else fails, return None (cache will be disabled)
-    xbmc.log("service.remove.black.bars.gbm: No writable cache directory available, cache disabled", level=xbmc.LOGWARNING)
+    # If profile directory is not writable, return None (cache disabled)
+    xbmc.log("service.remove.black.bars.gbm: Profile cache directory not available, cache disabled", level=xbmc.LOGWARNING)
     return None
 
 
@@ -172,6 +140,7 @@ class JsonCacheProvider:
         if not self.enabled or not self.path:
             return
         try:
+            xbmc.log(f"service.remove.black.bars.gbm: Attempting to save cache with {len(self._cache)} entries to {self.path}", level=xbmc.LOGDEBUG)
             self._ensure_dir()
             with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f)
@@ -253,12 +222,14 @@ class ZoomApplier:
             xbmc.log(f"service.remove.black.bars.gbm: _is_video_playing_fullscreen error: {e}", level=xbmc.LOGDEBUG)
             return False
 
-    def _calculate_zoom(self, detected_ratio):
+    def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False):
         if detected_ratio > 177:
             return detected_ratio / 177.0
+        elif zoom_narrow_ratios and detected_ratio < 177:
+            return 177.0 / detected_ratio
         return 1.0
 
-    def apply_zoom(self, detected_ratio, player):
+    def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False):
         try:
             # Skip if same ratio already applied
             if self.last_applied_ratio == detected_ratio:
@@ -272,7 +243,7 @@ class ZoomApplier:
             if not self._is_video_playing_fullscreen(player):
                 xbmc.log("service.remove.black.bars.gbm: Video not playing fullscreen", level=xbmc.LOGDEBUG)
                 return False
-            zoom_amount = self._calculate_zoom(detected_ratio)
+            zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios)
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount} for ratio {detected_ratio}", level=xbmc.LOGINFO)
             json_cmd = json.dumps({
                 "jsonrpc": "2.0",
@@ -389,7 +360,7 @@ class Service(xbmc.Player):
             xbmc.log(f"service.remove.black.bars.gbm: Detecting aspect ratio - title='{title}', year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
 
             # 1) IMDb (first priority, cache only IMDb results)
-            imdb_enabled = self._read_settings()
+            imdb_enabled, _ = self._read_settings()
             if imdb_enabled:
                 # Try cache first
                 ratio = self.cache.get(title, year, imdb_id=imdb_number if imdb_number else None)
@@ -433,7 +404,8 @@ class Service(xbmc.Player):
             ratio = self._detect_aspect_ratio()
             xbmc.log(f"service.remove.black.bars.gbm: Detected aspect ratio: {ratio}", level=xbmc.LOGINFO)
             if ratio:
-                self.zoom.apply_zoom(ratio, self)
+                _, zoom_narrow_ratios = self._read_settings()
+                self.zoom.apply_zoom(ratio, self, zoom_narrow_ratios)
             else:
                 xbmc.log("service.remove.black.bars.gbm: No aspect ratio detected, skipping zoom", level=xbmc.LOGINFO)
         except Exception as e:
@@ -476,19 +448,32 @@ class Service(xbmc.Player):
 def clear_cache():
     """Clear the IMDb cache - called from settings action"""
     try:
+        xbmc.log("service.remove.black.bars.gbm: clear_cache() called", level=xbmc.LOGINFO)
         addon = xbmcaddon.Addon()
         cache_enabled = addon.getSetting("enable_cache") == "true"
         if not cache_enabled:
             xbmcgui.Dialog().ok("IMDb Cache", "IMDb cache is disabled. Enable it first in settings.")
             return
+        
         cache = JsonCacheProvider(enabled=True)
+        cache_entries = len(cache._cache) if cache._cache else 0
+        xbmc.log(f"service.remove.black.bars.gbm: Cache has {cache_entries} entries before clearing", level=xbmc.LOGINFO)
+        
         if cache.clear():
             notify("IMDb cache cleared successfully")
-            xbmcgui.Dialog().ok("IMDb Cache", "IMDb cache cleared successfully.")
+            if cache_entries > 0:
+                msg = f"IMDb cache cleared successfully.\n{cache_entries} entries removed."
+            else:
+                msg = "IMDb cache cleared successfully."
+            xbmc.log(f"service.remove.black.bars.gbm: Showing dialog: {msg}", level=xbmc.LOGINFO)
+            xbmcgui.Dialog().ok("IMDb Cache", msg)
         else:
+            xbmc.log("service.remove.black.bars.gbm: Cache clear returned False", level=xbmc.LOGINFO)
             xbmcgui.Dialog().ok("IMDb Cache", "IMDb cache is already empty or could not be cleared.")
     except Exception as e:
         xbmc.log("service.remove.black.bars.gbm: Error clearing IMDb cache: " + str(e), level=xbmc.LOGERROR)
+        import traceback
+        xbmc.log("service.remove.black.bars.gbm: Traceback: " + traceback.format_exc(), level=xbmc.LOGERROR)
         xbmcgui.Dialog().ok("Error", f"Failed to clear IMDb cache: {e}")
 
 
