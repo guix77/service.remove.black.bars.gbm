@@ -22,7 +22,7 @@ jobs:
           mkdir -p build/service.remove.black.bars.gbm
           cp -r addon.py imdb.py addon.xml resources build/service.remove.black.bars.gbm/
           cd build
-          zip -r service.remove.black.bars.gbm-${VERSION}.zip service.remove.black.bars.gbm/
+          zip -r service.remove.black.bars.gbm-${VERSION}.zip service.remove.black.bars.gbm/ -x "*.pyc" "__pycache__/*"
       
       - name: Upload release
         uses: softprops/action-gh-release@v1
