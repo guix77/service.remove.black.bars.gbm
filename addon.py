@@ -50,8 +50,12 @@ class KodiMetadataProvider:
                         ratio = int((float(value) + 0.005) * 100)
                         xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from getAspectRatio: {ratio}", level=xbmc.LOGDEBUG)
                         return ratio
+                    else:
+                        xbmc.log("service.remove.black.bars.gbm: getAspectRatio() returned None/empty", level=xbmc.LOGDEBUG)
                 except Exception as e:
                     xbmc.log(f"service.remove.black.bars.gbm: Error calling getAspectRatio(): {e}", level=xbmc.LOGDEBUG)
+            else:
+                xbmc.log("service.remove.black.bars.gbm: video_info_tag does not have getAspectRatio method", level=xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Error checking getAspectRatio: {e}", level=xbmc.LOGDEBUG)
         
@@ -75,22 +79,66 @@ class KodiMetadataProvider:
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Error checking getVideoAspectRatio: {e}", level=xbmc.LOGDEBUG)
         
+        # Try method 3a: VideoPlayer.VideoAspect (documented in Emby forum)
+        try:
+            xbmc.log("service.remove.black.bars.gbm: Trying VideoPlayer.VideoAspect info label", level=xbmc.LOGDEBUG)
+            label = xbmc.getInfoLabel("VideoPlayer.VideoAspect")
+            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
+            if label and label != "VideoPlayer.VideoAspect":
+                # Format might be "2.35AR" or "2.35" or "2.35:1"
+                # Remove "AR" suffix if present
+                cleaned = label.replace("AR", "").split(":")[0].strip()
+                xbmc.log(f"service.remove.black.bars.gbm: Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
+                try:
+                    ratio = int((float(cleaned) + 0.005) * 100)
+                    xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from VideoPlayer.VideoAspect: {ratio}", level=xbmc.LOGDEBUG)
+                    return ratio
+                except ValueError as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error parsing VideoPlayer.VideoAspect '{label}': {e}", level=xbmc.LOGWARNING)
+            else:
+                xbmc.log("service.remove.black.bars.gbm: VideoPlayer.VideoAspect is not available", level=xbmc.LOGDEBUG)
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error getting VideoPlayer.VideoAspect: {e}", level=xbmc.LOGDEBUG)
+        
+        # Try method 3b: ListItem.VideoAspect (documented in Emby forum)
+        try:
+            xbmc.log("service.remove.black.bars.gbm: Trying ListItem.VideoAspect info label", level=xbmc.LOGDEBUG)
+            label = xbmc.getInfoLabel("ListItem.VideoAspect")
+            xbmc.log(f"service.remove.black.bars.gbm: ListItem.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
+            if label and label != "ListItem.VideoAspect":
+                # Format might be "2.35AR" or "2.35" or "2.35:1"
+                # Remove "AR" suffix if present
+                cleaned = label.replace("AR", "").split(":")[0].strip()
+                xbmc.log(f"service.remove.black.bars.gbm: Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
+                try:
+                    ratio = int((float(cleaned) + 0.005) * 100)
+                    xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from ListItem.VideoAspect: {ratio}", level=xbmc.LOGDEBUG)
+                    return ratio
+                except ValueError as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error parsing ListItem.VideoAspect '{label}': {e}", level=xbmc.LOGWARNING)
+            else:
+                xbmc.log("service.remove.black.bars.gbm: ListItem.VideoAspect is not available", level=xbmc.LOGDEBUG)
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: Error getting ListItem.VideoAspect: {e}", level=xbmc.LOGDEBUG)
+        
+        # Try method 3c: VideoPlayer.AspectRatio (fallback, may not work)
         try:
             xbmc.log("service.remove.black.bars.gbm: Trying VideoPlayer.AspectRatio info label", level=xbmc.LOGDEBUG)
             label = xbmc.getInfoLabel("VideoPlayer.AspectRatio")
             xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.AspectRatio returned: '{label}'", level=xbmc.LOGDEBUG)
-            if not label:
-                xbmc.log("service.remove.black.bars.gbm: VideoPlayer.AspectRatio is empty", level=xbmc.LOGDEBUG)
-                return None
-            # Common formats: "1.78" or "1.78:1"
-            cleaned = label.split(":")[0].strip()
-            xbmc.log(f"service.remove.black.bars.gbm: Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
-            ratio = int((float(cleaned) + 0.005) * 100)
-            xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from info label: {ratio}", level=xbmc.LOGDEBUG)
-            return ratio
-        except ValueError as e:
-            xbmc.log(f"service.remove.black.bars.gbm: Error parsing VideoPlayer.AspectRatio '{label}': {e}", level=xbmc.LOGWARNING)
-            return None
+            # If getInfoLabel returns the label name itself, it means the label is not available
+            if not label or label == "VideoPlayer.AspectRatio":
+                xbmc.log("service.remove.black.bars.gbm: VideoPlayer.AspectRatio is not available (returned label name or empty)", level=xbmc.LOGDEBUG)
+            else:
+                # Common formats: "1.78" or "1.78:1"
+                cleaned = label.split(":")[0].strip()
+                xbmc.log(f"service.remove.black.bars.gbm: Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
+                try:
+                    ratio = int((float(cleaned) + 0.005) * 100)
+                    xbmc.log(f"service.remove.black.bars.gbm: Calculated ratio from info label: {ratio}", level=xbmc.LOGDEBUG)
+                    return ratio
+                except ValueError as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error parsing VideoPlayer.AspectRatio '{label}': {e}", level=xbmc.LOGWARNING)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Error getting VideoPlayer.AspectRatio: {e}", level=xbmc.LOGDEBUG)
         
