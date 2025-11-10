@@ -1,6 +1,6 @@
 # Remove Black Bars (GBM)
 
-A Kodi addon that automatically removes black bars by applying intelligent zoom using metadata and optional IMDb fallback. Designed for GBM platforms (Linux/LE/CE/OSMC) without frame capture.
+A Kodi addon that automatically removes black bars by applying intelligent zoom using IMDb (enabled by default) with local metadata fallback. Designed for GBM platforms (Linux/LE/CE/OSMC) without frame capture.
 
 ## Requirements
 
@@ -9,8 +9,8 @@ A Kodi addon that automatically removes black bars by applying intelligent zoom 
 ## Features
 
 - Automatically removes black bars during video playback
-- Uses Kodi metadata and file metadata to detect aspect ratios
-- Optional IMDb fallback for aspect ratio detection
+- Uses IMDb for aspect ratio detection (enabled by default, requires internet)
+- Falls back to local Kodi metadata if IMDb is unavailable or ratio not found
 - Local cache for improved performance
 - Designed for GBM architecture without RenderCapture
 

@@ -32,154 +32,101 @@ def translate_profile_path(*paths):
 
 def get_writable_cache_path(filename="cache.json"):
     """
-    Get a writable cache path. Tries profile first, falls back to temp/cache if read-only.
+    Get a writable cache path. Tries multiple persistent locations before falling back to temp.
     Works on LibreELEC and other read-only filesystem setups.
+    Priority order:
+    1. Addon profile directory (special://profile/addon_data/...) - persistent
+    2. Userdata directory (special://userdata/addon_data/...) - persistent
+    3. Home directory (special://home/userdata/addon_data/...) - persistent on LibreELEC
+    4. Temp directory (special://temp/...) - may be cleared on reboot
+    5. /tmp/ - last resort, cleared on reboot
     """
-    # Try profile directory first
+    # Strategy 1: Try addon profile directory (most standard, persistent)
     try:
         profile_path = translate_profile_path(filename)
-        # Try to translate if it's a special:// path
         if profile_path.startswith("special://"):
             profile_path = xbmc.translatePath(profile_path)
-        
-        # Check if directory is writable
         directory = os.path.dirname(profile_path)
-        if directory and os.path.exists(directory):
-            if os.access(directory, os.W_OK):
-                return profile_path
-        # Try to create directory
-        elif directory:
+        if directory:
             try:
                 os.makedirs(directory, exist_ok=True)
-                if os.access(directory, os.W_OK):
-                    return profile_path
             except (OSError, IOError):
                 pass
-    except Exception:
-        pass
+            if os.path.exists(directory) and os.access(directory, os.W_OK):
+                xbmc.log(f"service.remove.black.bars.gbm: Using profile cache directory: {profile_path}", level=xbmc.LOGDEBUG)
+                return profile_path
+    except Exception as e:
+        xbmc.log(f"service.remove.black.bars.gbm: Profile directory not available: {e}", level=xbmc.LOGDEBUG)
     
-    # Fallback to temp directory (writable on LibreELEC)
+    # Strategy 2: Try userdata/addon_data directory (persistent)
+    try:
+        userdata_path = xbmc.translatePath("special://userdata/addon_data/service.remove.black.bars.gbm/")
+        os.makedirs(userdata_path, exist_ok=True)
+        if os.path.exists(userdata_path) and os.access(userdata_path, os.W_OK):
+            cache_path = os.path.join(userdata_path, filename)
+            xbmc.log(f"service.remove.black.bars.gbm: Using userdata cache directory: {cache_path}", level=xbmc.LOGDEBUG)
+            return cache_path
+    except Exception as e:
+        xbmc.log(f"service.remove.black.bars.gbm: Userdata directory not available: {e}", level=xbmc.LOGDEBUG)
+    
+    # Strategy 3: Try home/userdata/addon_data directory (persistent on LibreELEC)
+    try:
+        home_path = xbmc.translatePath("special://home/userdata/addon_data/service.remove.black.bars.gbm/")
+        os.makedirs(home_path, exist_ok=True)
+        if os.path.exists(home_path) and os.access(home_path, os.W_OK):
+            cache_path = os.path.join(home_path, filename)
+            xbmc.log(f"service.remove.black.bars.gbm: Using home cache directory: {cache_path}", level=xbmc.LOGDEBUG)
+            return cache_path
+    except Exception as e:
+        xbmc.log(f"service.remove.black.bars.gbm: Home directory not available: {e}", level=xbmc.LOGDEBUG)
+    
+    # Strategy 4: Fallback to temp directory (may be cleared on reboot, but writable on LibreELEC)
     try:
         temp_path = xbmc.translatePath("special://temp/")
         cache_dir = os.path.join(temp_path, "service.remove.black.bars.gbm")
         os.makedirs(cache_dir, exist_ok=True)
-        return os.path.join(cache_dir, filename)
-    except Exception:
-        # Last resort: use /tmp if available
-        try:
-            cache_dir = "/tmp/service.remove.black.bars.gbm"
-            os.makedirs(cache_dir, exist_ok=True)
-            return os.path.join(cache_dir, filename)
-        except Exception:
-            # If all else fails, return None (cache will be disabled)
-            return None
-
-
-def is_local_file(path):
-    if not path:
-        return False
-    if path.startswith(("http://", "https://", "smb://", "nfs://", "ftp://")):
-        return False
-    if path.startswith("/") or (os.name == "nt" and ":" in path):
-        try:
-            return os.path.exists(path)
-        except Exception:
-            return False
-    return False
+        cache_path = os.path.join(cache_dir, filename)
+        xbmc.log(f"service.remove.black.bars.gbm: Using temp cache directory (may be cleared on reboot): {cache_path}", level=xbmc.LOGWARNING)
+        return cache_path
+    except Exception as e:
+        xbmc.log(f"service.remove.black.bars.gbm: Temp directory not available: {e}", level=xbmc.LOGDEBUG)
+    
+    # Strategy 5: Last resort: use /tmp if available (will be cleared on reboot)
+    try:
+        cache_dir = "/tmp/service.remove.black.bars.gbm"
+        os.makedirs(cache_dir, exist_ok=True)
+        cache_path = os.path.join(cache_dir, filename)
+        xbmc.log(f"service.remove.black.bars.gbm: Using /tmp cache directory (will be cleared on reboot): {cache_path}", level=xbmc.LOGWARNING)
+        return cache_path
+    except Exception as e:
+        xbmc.log(f"service.remove.black.bars.gbm: /tmp directory not available: {e}", level=xbmc.LOGWARNING)
+    
+    # If all else fails, return None (cache will be disabled)
+    xbmc.log("service.remove.black.bars.gbm: No writable cache directory available, cache disabled", level=xbmc.LOGWARNING)
+    return None
 
 
 class KodiMetadataProvider:
     def get_aspect_ratio(self, video_info_tag):
-        # Force test all methods to see which ones work
-        # VideoPlayer.VideoAspect gives the aspect ratio of the video file as it is
-        # (may include hardcoded black bars for Jellyfin/streaming sources)
-        
-        results = {}  # Store results from all methods
-        
-        # Try method 1: VideoPlayer.VideoAspect (documented in Emby forum)
+        """
+        Get aspect ratio from Kodi metadata using VideoPlayer.VideoAspect InfoLabel.
+        Returns aspect ratio as integer (e.g., 178 for 16:9, 240 for 2.40:1).
+        See ASPECT_RATIO_DETECTION.md for alternative methods (JSON-RPC).
+        """
         try:
-            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying VideoPlayer.VideoAspect info label", level=xbmc.LOGDEBUG)
             label = xbmc.getInfoLabel("VideoPlayer.VideoAspect")
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
             if label and label != "VideoPlayer.VideoAspect":
                 # Format might be "2.35AR" or "2.35" or "2.35:1"
-                # Remove "AR" suffix if present
                 cleaned = label.replace("AR", "").split(":")[0].strip()
-                xbmc.log(f"service.remove.black.bars.gbm: [TEST] Cleaned aspect ratio string: '{cleaned}'", level=xbmc.LOGDEBUG)
                 try:
                     ratio = int((float(cleaned) + 0.005) * 100)
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["VideoPlayer.VideoAspect"] = ratio
+                    xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: {ratio}", level=xbmc.LOGINFO)
+                    return ratio
                 except ValueError as e:
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect FAILED (parse error): {e}", level=xbmc.LOGWARNING)
-                    results["VideoPlayer.VideoAspect"] = None
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect FAILED (not available)", level=xbmc.LOGDEBUG)
-                results["VideoPlayer.VideoAspect"] = None
+                    xbmc.log(f"service.remove.black.bars.gbm: Failed to parse VideoPlayer.VideoAspect '{label}': {e}", level=xbmc.LOGDEBUG)
         except Exception as e:
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] VideoPlayer.VideoAspect FAILED (exception): {e}", level=xbmc.LOGDEBUG)
-            results["VideoPlayer.VideoAspect"] = None
-        
-        # Try method 2: JSON-RPC Player.GetItem (works for Jellyfin/streaming)
-        try:
-            xbmc.log("service.remove.black.bars.gbm: [TEST] Trying JSON-RPC Player.GetItem", level=xbmc.LOGDEBUG)
-            json_cmd = json.dumps({
-                "jsonrpc": "2.0",
-                "method": "Player.GetItem",
-                "params": {
-                    "playerid": 1,
-                    "properties": ["streamdetails"]
-                },
-                "id": 1
-            })
-            result = xbmc.executeJSONRPC(json_cmd)
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC result: {result[:200] if result else 'None'}", level=xbmc.LOGDEBUG)
-            if result:
-                try:
-                    result_json = json.loads(result)
-                    if "result" in result_json and "item" in result_json["result"]:
-                        item = result_json["result"]["item"]
-                        if "streamdetails" in item and "video" in item["streamdetails"]:
-                            video_streams = item["streamdetails"]["video"]
-                            if len(video_streams) > 0:
-                                video_stream = video_streams[0]
-                                if "aspect" in video_stream:
-                                    aspect = video_stream["aspect"]
-                                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] Found aspect ratio from JSON-RPC: {aspect}", level=xbmc.LOGDEBUG)
-                                    # Convert to integer format (e.g., 1.78 -> 178)
-                                    ratio = int((float(aspect) + 0.005) * 100)
-                                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                                    results["JSON-RPC"] = ratio
-                                else:
-                                    xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no 'aspect' in video stream)", level=xbmc.LOGDEBUG)
-                                    results["JSON-RPC"] = None
-                            else:
-                                xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no video stream)", level=xbmc.LOGDEBUG)
-                                results["JSON-RPC"] = None
-                        else:
-                            xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no streamdetails in item)", level=xbmc.LOGDEBUG)
-                            results["JSON-RPC"] = None
-                    else:
-                        xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no item in result)", level=xbmc.LOGDEBUG)
-                        results["JSON-RPC"] = None
-                except (json.JSONDecodeError, KeyError, ValueError) as e:
-                    xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (parse error): {e}", level=xbmc.LOGDEBUG)
-                    results["JSON-RPC"] = None
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (no result)", level=xbmc.LOGDEBUG)
-                results["JSON-RPC"] = None
-        except Exception as e:
-            xbmc.log(f"service.remove.black.bars.gbm: [TEST] JSON-RPC FAILED (exception): {e}", level=xbmc.LOGDEBUG)
-            results["JSON-RPC"] = None
-        
-        # Log summary of all tests
-        xbmc.log(f"service.remove.black.bars.gbm: [TEST SUMMARY] Results: {results}", level=xbmc.LOGINFO)
-        
-        # Return first successful result
-        for method, ratio in results.items():
-            if ratio is not None:
-                xbmc.log(f"service.remove.black.bars.gbm: [TEST] Using {method} with ratio {ratio}", level=xbmc.LOGINFO)
-                return ratio
+            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.VideoAspect error: {e}", level=xbmc.LOGDEBUG)
         
         return None
 
@@ -187,7 +134,6 @@ class KodiMetadataProvider:
 class JsonCacheProvider:
     def __init__(self, enabled=True):
         self.enabled = enabled
-        # Use writable cache path (works on LibreELEC)
         self.path = get_writable_cache_path("cache.json")
         self._cache = {}
         if self.enabled and self.path:
@@ -201,16 +147,10 @@ class JsonCacheProvider:
         if not self.path:
             return
         try:
-            # Path should already be translated by get_writable_cache_path
             directory = os.path.dirname(self.path)
-            if directory:
-                # Create directory if it doesn't exist
-                if not os.path.isdir(directory):
-                    try:
-                        os.makedirs(directory, exist_ok=True)
-                        xbmc.log(f"service.remove.black.bars.gbm: Created cache directory: {directory}", level=xbmc.LOGDEBUG)
-                    except OSError as e:
-                        xbmc.log(f"service.remove.black.bars.gbm: Failed to create cache directory: {e}", level=xbmc.LOGWARNING)
+            if directory and not os.path.isdir(directory):
+                os.makedirs(directory, exist_ok=True)
+                xbmc.log(f"service.remove.black.bars.gbm: Created cache directory: {directory}", level=xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Failed to ensure cache dir: {e}", level=xbmc.LOGWARNING)
 
@@ -218,11 +158,11 @@ class JsonCacheProvider:
         if not self.enabled or not self.path:
             return {}
         try:
-            # Path should already be translated by get_writable_cache_path
             if os.path.exists(self.path):
                 with open(self.path, "r", encoding="utf-8") as f:
                     cache = json.load(f)
                     xbmc.log(f"service.remove.black.bars.gbm: Loaded cache with {len(cache)} entries from {self.path}", level=xbmc.LOGDEBUG)
+                    xbmc.log(f"service.remove.black.bars.gbm: Cache location: {self.path}", level=xbmc.LOGINFO)
                     return cache
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Failed to load cache: {e}", level=xbmc.LOGWARNING)
@@ -232,23 +172,18 @@ class JsonCacheProvider:
         if not self.enabled or not self.path:
             return
         try:
-            # Ensure directory exists before saving
             self._ensure_dir()
-            
-            # Path should already be translated and writable by get_writable_cache_path
             with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f)
                 xbmc.log(f"service.remove.black.bars.gbm: Saved cache with {len(self._cache)} entries to {self.path}", level=xbmc.LOGDEBUG)
-        except OSError as e:
-            xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache: {e}", level=xbmc.LOGWARNING)
+                xbmc.log(f"service.remove.black.bars.gbm: Cache location: {self.path}", level=xbmc.LOGINFO)
         except Exception as e:
-            xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache: {e}", level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache to {self.path}: {e}", level=xbmc.LOGWARNING)
     
     def clear(self):
         """Clear the cache"""
         try:
             self._cache = {}
-            # Path should already be translated by get_writable_cache_path
             if self.path and os.path.exists(self.path):
                 os.remove(self.path)
                 xbmc.log(f"service.remove.black.bars.gbm: Cache cleared from {self.path}", level=xbmc.LOGINFO)
@@ -282,22 +217,11 @@ class JsonCacheProvider:
             xbmc.log("service.remove.black.bars.gbm: Failed to store cache: " + str(e), level=xbmc.LOGWARNING)
 
 
-class FileMetadataProvider:
-    def is_local_file(self, path):
-        return is_local_file(path)
-
-    def extract_from_file(self, path):
-        # Optionally parse via mediainfo/ffprobe if available.
-        # For now, return None to keep GBM path simple and avoid external deps.
-        return None
-
-
 class IMDbProvider:
     def get_aspect_ratio(self, title, imdb_number=None):
         try:
             value = getOriginalAspectRatio(title, imdb_number=imdb_number)
             if isinstance(value, list):
-                # Prefer first value if multiple and no theatrical tag detected upstream
                 value = value[0] if value else None
             if value:
                 return int(value)
@@ -350,8 +274,6 @@ class ZoomApplier:
                 return False
             zoom_amount = self._calculate_zoom(detected_ratio)
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount} for ratio {detected_ratio}", level=xbmc.LOGINFO)
-            # Use Player.SetViewMode with zoom parameter
-            # viewmode is an object with zoom value (matching old code format)
             json_cmd = json.dumps({
                 "jsonrpc": "2.0",
                 "method": "Player.SetViewMode",
@@ -363,7 +285,13 @@ class ZoomApplier:
                 "id": 1
             })
             result = xbmc.executeJSONRPC(json_cmd)
-            xbmc.log(f"service.remove.black.bars.gbm: JSONRPC result: {result}", level=xbmc.LOGDEBUG)
+            if result:
+                try:
+                    result_json = json.loads(result)
+                    if "error" in result_json:
+                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error: {result_json.get('error', {})}", level=xbmc.LOGWARNING)
+                except Exception:
+                    pass
             self.last_zoom_time_ms = now_ms
             self.last_applied_ratio = detected_ratio
             if zoom_amount > 1.0:
@@ -381,10 +309,8 @@ class Service(xbmc.Player):
         self.zoom = ZoomApplier()
         self.kodi = KodiMetadataProvider()
         self._addon = xbmcaddon.Addon()
-        # Initialize cache with enabled setting
         cache_enabled = self._get_cache_enabled()
         self.cache = JsonCacheProvider(enabled=cache_enabled)
-        self.filemeta = FileMetadataProvider()
         self.imdb = IMDbProvider()
 
         if "toggle" in sys.argv:
@@ -392,20 +318,13 @@ class Service(xbmc.Player):
                 self.show_original()
             else:
                 self.on_av_started()
-        
-        # Check if cache should be cleared (from settings action)
-        # This will be handled in main() if called with clear_cache parameter
 
     def _read_settings(self):
         try:
-            enabled = self._addon.getSetting("automatically_execute") == "true"
+            imdb_enabled = self._addon.getSetting("enable_imdb") == "true"
         except Exception:
-            enabled = True
-        try:
-            imdb_fallback = self._addon.getSetting("enable_imdb_fallback") == "true"
-        except Exception:
-            imdb_fallback = False
-        return enabled, imdb_fallback
+            imdb_enabled = False
+        return imdb_enabled
 
     def _get_cache_enabled(self):
         try:
@@ -444,23 +363,15 @@ class Service(xbmc.Player):
 
             title, year = self._extract_title_year(video_info_tag)
             
-            # Try to get IMDb number from multiple sources
-            # For Jellyfin: use uniqueid.imdb for movies, uniqueid.tvdb for episodes (but TVDB can't be used directly for IMDb lookup)
+            # Get IMDb number from JSON-RPC
             imdb_number = None
-            media_type = None
-            try:
-                media_type = video_info_tag.getMediaType()
-            except Exception:
-                pass
-            
-            # Method 1: JSON-RPC Player.GetItem (most reliable for Jellyfin)
             try:
                 json_cmd = json.dumps({
                     "jsonrpc": "2.0",
                     "method": "Player.GetItem",
                     "params": {
                         "playerid": 1,
-                        "properties": ["uniqueid", "imdbnumber"]
+                        "properties": ["uniqueid"]
                     },
                     "id": 1
                 })
@@ -469,126 +380,55 @@ class Service(xbmc.Player):
                     result_json = json.loads(result)
                     if "result" in result_json and "item" in result_json["result"]:
                         item = result_json["result"]["item"]
-                        item_type = item.get("type", media_type)
-                        
-                        # For movies: use uniqueid.imdb (no fallback, if not available will search by title)
-                        if item_type == "movie":
-                            if "uniqueid" in item and "imdb" in item["uniqueid"]:
-                                imdb_number = item["uniqueid"]["imdb"]
-                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb number from JSON-RPC uniqueid.imdb (movie): {imdb_number}", level=xbmc.LOGDEBUG)
-                        
-                        # For episodes: use uniqueid.imdb if available (no fallback, if not available will search by title)
-                        elif item_type == "episode":
-                            if "uniqueid" in item and "imdb" in item["uniqueid"]:
-                                imdb_number = item["uniqueid"]["imdb"]
-                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb number from JSON-RPC uniqueid.imdb (episode): {imdb_number}", level=xbmc.LOGDEBUG)
-                            elif "uniqueid" in item and "tvdb" in item["uniqueid"]:
-                                tvdb_id = item["uniqueid"]["tvdb"]
-                                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Found TVDB ID for episode: {tvdb_id} (cannot use for IMDb, will search by title)", level=xbmc.LOGDEBUG)
-            except Exception as e:
-                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Failed to get IMDb from JSON-RPC: {e}", level=xbmc.LOGDEBUG)
+                        item_type = item.get("type")
+                        if item_type in ("movie", "episode") and "uniqueid" in item and "imdb" in item["uniqueid"]:
+                            imdb_number = item["uniqueid"]["imdb"]
+            except Exception:
+                pass
             
-            # Normalize IMDb number: add "tt" prefix if it's just a number
-            if imdb_number and imdb_number.isdigit():
-                imdb_number = "tt" + imdb_number
-            xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Detecting ratio for title={title}, year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
-
-            results = {}  # Store results from all providers
+            xbmc.log(f"service.remove.black.bars.gbm: Detecting aspect ratio - title='{title}', year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
 
             # 1) IMDb (first priority, cache only IMDb results)
-            enabled, imdb_fallback = self._read_settings()
-            if imdb_fallback:
+            imdb_enabled = self._read_settings()
+            if imdb_enabled:
                 # Try cache first
-                xbmc.log("service.remove.black.bars.gbm: [DETECT] Trying IMDb cache", level=xbmc.LOGDEBUG)
                 ratio = self.cache.get(title, year, imdb_id=imdb_number if imdb_number else None)
                 if ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb cache SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["IMDb cache"] = ratio
-                else:
-                    xbmc.log("service.remove.black.bars.gbm: [DETECT] IMDb cache FAILED", level=xbmc.LOGDEBUG)
-                    results["IMDb cache"] = None
+                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb cache: {ratio}", level=xbmc.LOGINFO)
+                    return ratio
                 
                 # Try IMDb provider
-                xbmc.log("service.remove.black.bars.gbm: [DETECT] Trying IMDb provider", level=xbmc.LOGDEBUG)
+                xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, fetching from IMDb", level=xbmc.LOGDEBUG)
                 ratio = self.imdb.get_aspect_ratio(title, imdb_number=imdb_number if imdb_number else None)
                 if ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: [DETECT] IMDb SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["IMDb"] = ratio
-                    # Cache IMDb result
+                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb: {ratio}", level=xbmc.LOGINFO)
                     self.cache.store(title, year, ratio, imdb_id=imdb_number if imdb_number else None)
-                else:
-                    xbmc.log("service.remove.black.bars.gbm: [DETECT] IMDb FAILED", level=xbmc.LOGDEBUG)
-                    results["IMDb"] = None
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [DETECT] IMDb fallback disabled, skipping", level=xbmc.LOGDEBUG)
-                results["IMDb cache"] = None
-                results["IMDb"] = None
-
-            # 2) Kodi metadata (includes JSON-RPC in KodiMetadataProvider)
-            xbmc.log("service.remove.black.bars.gbm: [DETECT] Trying Kodi metadata provider", level=xbmc.LOGDEBUG)
-            ratio = self.kodi.get_aspect_ratio(video_info_tag)
-            if ratio:
-                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Kodi metadata SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                results["Kodi metadata"] = ratio
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [DETECT] Kodi metadata FAILED", level=xbmc.LOGDEBUG)
-                results["Kodi metadata"] = None
-
-            # 3) Local file metadata
-            try:
-                path = video_info_tag.getFilenameAndPath()
-            except Exception:
-                path = None
-            if self.filemeta.is_local_file(path):
-                xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Trying file metadata provider for {path}", level=xbmc.LOGDEBUG)
-                ratio = self.filemeta.extract_from_file(path)
-                if ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: [DETECT] File metadata SUCCESS: {ratio}", level=xbmc.LOGINFO)
-                    results["File metadata"] = ratio
-                else:
-                    xbmc.log("service.remove.black.bars.gbm: [DETECT] File metadata FAILED", level=xbmc.LOGDEBUG)
-                    results["File metadata"] = None
-            else:
-                xbmc.log("service.remove.black.bars.gbm: [DETECT] File is not local, skipping file metadata provider", level=xbmc.LOGDEBUG)
-                results["File metadata"] = None
-
-            # Log summary of all tests
-            xbmc.log(f"service.remove.black.bars.gbm: [DETECT SUMMARY] Results: {results}", level=xbmc.LOGINFO)
-
-            # Return first successful result (in priority order: IMDb cache, IMDb, Kodi metadata, File metadata)
-            for provider in ["IMDb cache", "IMDb", "Kodi metadata", "File metadata"]:
-                if provider in results and results[provider] is not None:
-                    ratio = results[provider]
-                    xbmc.log(f"service.remove.black.bars.gbm: [DETECT] Using {provider} with ratio {ratio}", level=xbmc.LOGINFO)
                     return ratio
 
-            xbmc.log("service.remove.black.bars.gbm: [DETECT] No aspect ratio found from any provider", level=xbmc.LOGDEBUG)
+            # 2) Kodi metadata (fallback if IMDb unavailable or not found)
+            xbmc.log("service.remove.black.bars.gbm: Trying Kodi metadata", level=xbmc.LOGDEBUG)
+            ratio = self.kodi.get_aspect_ratio(video_info_tag)
+            if ratio:
+                xbmc.log(f"service.remove.black.bars.gbm: Using Kodi metadata: {ratio}", level=xbmc.LOGINFO)
+                return ratio
+
+            xbmc.log("service.remove.black.bars.gbm: No aspect ratio found from any provider", level=xbmc.LOGDEBUG)
             return None
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: detect ratio error: " + str(e), level=xbmc.LOGERROR)
             return None
 
     def onAVStarted(self):
-        # Kodi may call this in older versions
         self.on_av_started()
 
     def onAVChange(self):
         # Disabled to avoid loop: changing zoom triggers onAVChange which re-applies zoom
-        # Only use on_av_started for initial detection
-        # self.on_av_change()
         pass
 
     def on_av_started(self):
         try:
             xbmc.log("service.remove.black.bars.gbm: on_av_started called", level=xbmc.LOGINFO)
-            # Reset last applied ratio for new video
             self.zoom.last_applied_ratio = None
-            enabled, _ = self._read_settings()
-            xbmc.log(f"service.remove.black.bars.gbm: Automatically execute enabled: {enabled}", level=xbmc.LOGINFO)
-            if not enabled:
-                xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
-                self.show_original()
-                return
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "on")
             ratio = self._detect_aspect_ratio()
             xbmc.log(f"service.remove.black.bars.gbm: Detected aspect ratio: {ratio}", level=xbmc.LOGINFO)
@@ -599,17 +439,6 @@ class Service(xbmc.Player):
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: on_av_started error: " + str(e), level=xbmc.LOGERROR)
 
-    def on_av_change(self):
-        try:
-            # Re-évaluer le ratio sur changement AV
-            enabled, _ = self._read_settings()
-            if not enabled:
-                return
-            ratio = self._detect_aspect_ratio()
-            if ratio:
-                self.zoom.apply_zoom(ratio, self)
-        except Exception as e:
-            xbmc.log("service.remove.black.bars.gbm: on_av_change error: " + str(e), level=xbmc.LOGERROR)
 
     def onPlayBackStopped(self):
         try:
@@ -654,6 +483,7 @@ def clear_cache():
             return
         cache = JsonCacheProvider(enabled=True)
         if cache.clear():
+            notify("IMDb cache cleared successfully")
             xbmcgui.Dialog().ok("IMDb Cache", "IMDb cache cleared successfully.")
         else:
             xbmcgui.Dialog().ok("IMDb Cache", "IMDb cache is already empty or could not be cleared.")
@@ -663,7 +493,6 @@ def clear_cache():
 
 
 def main():
-    # Check if called with clear_cache action
     if len(sys.argv) > 1 and sys.argv[1] == "clear_cache":
         clear_cache()
         return

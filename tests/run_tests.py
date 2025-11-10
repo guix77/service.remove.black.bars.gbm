@@ -18,10 +18,8 @@ def load_tests():
     
     # Charger tous les modules de test
     test_modules = [
-        'test_utils',
         'test_kodi_metadata_provider',
         'test_cache_provider',
-        'test_file_metadata_provider',
         'test_imdb_provider',
         'test_zoom_applier',
     ]
