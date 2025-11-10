@@ -296,13 +296,14 @@ class ZoomApplier:
             zoom_amount = self._calculate_zoom(detected_ratio)
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount} for ratio {detected_ratio}", level=xbmc.LOGINFO)
             # Use Player.SetViewMode with zoom parameter
+            # viewmode is an object with zoom value (matching old code format)
             json_cmd = json.dumps({
                 "jsonrpc": "2.0",
                 "method": "Player.SetViewMode",
                 "params": {
-                    "playerid": 1,
-                    "viewmode": "zoom",
-                    "zoom": zoom_amount
+                    "viewmode": {
+                        "zoom": zoom_amount
+                    }
                 },
                 "id": 1
             })
@@ -483,9 +484,9 @@ class Service(xbmc.Player):
                 "jsonrpc": "2.0",
                 "method": "Player.SetViewMode",
                 "params": {
-                    "playerid": 1,
-                    "viewmode": "zoom",
-                    "zoom": 1.0
+                    "viewmode": {
+                        "zoom": 1.0
+                    }
                 },
                 "id": 1
             })
