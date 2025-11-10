@@ -144,14 +144,19 @@ class ZoomApplier:
     def _is_video_playing_fullscreen(self, player):
         try:
             if not player.isPlayingVideo():
+                xbmc.log("service.remove.black.bars.gbm: Not playing video", level=xbmc.LOGDEBUG)
                 return False
             window_id = xbmcgui.getCurrentWindowId()
+            xbmc.log(f"service.remove.black.bars.gbm: Current window ID: {window_id}", level=xbmc.LOGDEBUG)
             if window_id != 12005:
+                xbmc.log(f"service.remove.black.bars.gbm: Not in fullscreen window (expected 12005, got {window_id})", level=xbmc.LOGDEBUG)
                 return False
             if not player.isPlaying():
+                xbmc.log("service.remove.black.bars.gbm: Player not playing", level=xbmc.LOGDEBUG)
                 return False
             return True
-        except Exception:
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: _is_video_playing_fullscreen error: {e}", level=xbmc.LOGDEBUG)
             return False
 
     def _calculate_zoom(self, detected_ratio):
@@ -163,16 +168,29 @@ class ZoomApplier:
         try:
             now_ms = int(time.time() * 1000)
             if now_ms - self.last_zoom_time_ms < ZOOM_RATE_LIMIT_MS:
+                xbmc.log("service.remove.black.bars.gbm: Zoom rate limited", level=xbmc.LOGDEBUG)
                 return False
             if not self._is_video_playing_fullscreen(player):
+                xbmc.log("service.remove.black.bars.gbm: Video not playing fullscreen", level=xbmc.LOGDEBUG)
                 return False
             zoom_amount = self._calculate_zoom(detected_ratio)
-            xbmc.executeJSONRPC(
-                '{"jsonrpc":"2.0","method":"Player.SetViewMode","params":{"viewmode":{"zoom":' + str(zoom_amount) + '}},"id":1}'
-            )
+            xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount} for ratio {detected_ratio}", level=xbmc.LOGINFO)
+            # Use Player.SetViewMode with zoom parameter
+            json_cmd = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "Player.SetViewMode",
+                "params": {
+                    "playerid": 1,
+                    "viewmode": "zoom",
+                    "zoom": zoom_amount
+                },
+                "id": 1
+            })
+            result = xbmc.executeJSONRPC(json_cmd)
+            xbmc.log(f"service.remove.black.bars.gbm: JSONRPC result: {result}", level=xbmc.LOGDEBUG)
             self.last_zoom_time_ms = now_ms
             if zoom_amount > 1.0:
-                notify("Zoom appliqué {:0.2f}".format(zoom_amount))
+                notify("Zoom applied {:.2f}".format(zoom_amount))
             return True
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: Zoom error: " + str(e), level=xbmc.LOGERROR)
@@ -297,15 +315,20 @@ class Service(xbmc.Player):
 
     def on_av_started(self):
         try:
+            xbmc.log("service.remove.black.bars.gbm: on_av_started called", level=xbmc.LOGINFO)
             enabled, _ = self._read_settings()
+            xbmc.log(f"service.remove.black.bars.gbm: Automatically execute enabled: {enabled}", level=xbmc.LOGINFO)
             if not enabled:
                 xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
                 self.show_original()
                 return
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "on")
             ratio = self._detect_aspect_ratio()
+            xbmc.log(f"service.remove.black.bars.gbm: Detected aspect ratio: {ratio}", level=xbmc.LOGINFO)
             if ratio:
                 self.zoom.apply_zoom(ratio, self)
+            else:
+                xbmc.log("service.remove.black.bars.gbm: No aspect ratio detected, skipping zoom", level=xbmc.LOGINFO)
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: on_av_started error: " + str(e), level=xbmc.LOGERROR)
 
@@ -336,18 +359,31 @@ class Service(xbmc.Player):
     def show_original(self):
         try:
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
-            xbmc.executeJSONRPC('{"jsonrpc":"2.0","method":"Player.SetViewMode","params":{"viewmode":{"zoom":1.0}},"id":1}')
-            notify("Affichage original")
+            json_cmd = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "Player.SetViewMode",
+                "params": {
+                    "playerid": 1,
+                    "viewmode": "zoom",
+                    "zoom": 1.0
+                },
+                "id": 1
+            })
+            xbmc.executeJSONRPC(json_cmd)
+            notify("Original view")
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: show_original error: " + str(e), level=xbmc.LOGERROR)
 
 
 def main():
+    xbmc.log("service.remove.black.bars.gbm: Service starting", level=xbmc.LOGINFO)
     service = Service()
+    xbmc.log("service.remove.black.bars.gbm: Service initialized", level=xbmc.LOGINFO)
     monitor = xbmc.Monitor()
     while not monitor.abortRequested():
         if monitor.waitForAbort(1):
             break
+    xbmc.log("service.remove.black.bars.gbm: Service stopping", level=xbmc.LOGINFO)
 
 
 if __name__ == "__main__":
