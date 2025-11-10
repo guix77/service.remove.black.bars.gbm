@@ -33,8 +33,16 @@ def getOriginalAspectRatio(title, imdb_number=None):
     """
     Récupère le ratio d'aspect original depuis IMDb.
     Retourne None en cas d'erreur pour éviter les fuites mémoire.
+    Toutes les exceptions sont gérées et les objets sont nettoyés.
     """
+    search_page = None
+    title_page = None
+    tech_specs_page = None
+    soup = None
+    
     try:
+        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Starting getOriginalAspectRatio with title='{title}', imdb_number='{imdb_number}'", level=xbmc.LOGDEBUG)
+        
         BASE_URL = "https://www.imdb.com/"
         HEADERS = {
             'User-Agent': 'Mozilla/5.0 (iPad; CPU OS 12_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148'}
@@ -44,166 +52,123 @@ def getOriginalAspectRatio(title, imdb_number=None):
             imdb_str = str(imdb_number)
             if imdb_str.isdigit():
                 imdb_number = "tt" + imdb_str
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Normalized IMDb number to: {imdb_number}", level=xbmc.LOGDEBUG)
             elif not imdb_str.startswith("tt"):
                 imdb_number = "tt" + imdb_str
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Added 'tt' prefix to IMDb number: {imdb_number}", level=xbmc.LOGDEBUG)
         
         if imdb_number and str(imdb_number).startswith("tt"):
             URL = "{}/title/{}/".format(BASE_URL, imdb_number)
+            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Using IMDb number directly, URL: {URL}", level=xbmc.LOGDEBUG)
         else:
             if not title:
-                xbmc.log("service.remove.black.bars.gbm: No title provided for IMDb search", level=xbmc.LOGWARNING)
+                xbmc.log("service.remove.black.bars.gbm: [IMDb] No title provided for IMDb search", level=xbmc.LOGWARNING)
                 return None
                 
             URL = BASE_URL + "find/?q={}".format(title)
+            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Searching IMDb with URL: {URL}", level=xbmc.LOGDEBUG)
             search_page, error = _fetch_with_retry(URL, HEADERS)
             if error:
-                xbmc.log("service.remove.black.bars.gbm: Error fetching IMDb search page: " + str(error), level=xbmc.LOGWARNING)
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Error fetching IMDb search page: {error}", level=xbmc.LOGWARNING)
                 return None
 
+            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Search page fetched successfully, length: {len(search_page.text)}", level=xbmc.LOGDEBUG)
+            
             # lxml parser would have been better but not currently supported in Kodi
             soup = BeautifulSoup(search_page.text, 'html.parser')
 
-            # Try multiple selectors to find the title link
-            title_url_tag = None
-            title_url = None
-            
-            # Strategy 1: Try finding result container first
-            result_container = soup.find('ul', class_='ipc-metadata-list') or soup.find('ul', class_='findList')
-            if result_container:
-                xbmc.log("service.remove.black.bars.gbm: Found result container", level=xbmc.LOGDEBUG)
-                # Try to find first result link
-                first_result = result_container.find('a', href=lambda h: h and '/title/tt' in h)
-                if first_result:
-                    title_url_tag = first_result
-                    xbmc.log("service.remove.black.bars.gbm: Found first result link in container", level=xbmc.LOGDEBUG)
-            
-            # Strategy 2: Direct link selector
-            if not title_url_tag:
-                title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t a')
-                if title_url_tag:
-                    xbmc.log("service.remove.black.bars.gbm: Found link with selector '.ipc-metadata-list-summary-item__t a'", level=xbmc.LOGDEBUG)
-            
-            # Strategy 3: Find title element then link inside
-            if not title_url_tag:
-                title_element = soup.select_one('.ipc-metadata-list-summary-item__t')
-                if title_element:
-                    xbmc.log("service.remove.black.bars.gbm: Found title element, looking for link inside", level=xbmc.LOGDEBUG)
-                    # Try parent link
-                    parent = title_element.parent
-                    if parent and parent.name == 'a':
-                        title_url_tag = parent
-                        xbmc.log("service.remove.black.bars.gbm: Found link in parent of title element", level=xbmc.LOGDEBUG)
-                    else:
-                        # Try finding any link in the element or nearby
-                        title_url_tag = title_element.find('a', href=True)
-                        if not title_url_tag:
-                            # Try next sibling
-                            next_sibling = title_element.find_next_sibling('a', href=True)
-                            if next_sibling:
-                                title_url_tag = next_sibling
-                                xbmc.log("service.remove.black.bars.gbm: Found link in next sibling", level=xbmc.LOGDEBUG)
-            
-            # Strategy 4: Try alternative selectors - find any link with /title/tt
-            if not title_url_tag:
-                xbmc.log("service.remove.black.bars.gbm: Trying alternative selectors", level=xbmc.LOGDEBUG)
-                # Try finding any link with /title/ in href (prioritize first result)
-                all_links = soup.find_all('a', href=True)
-                for link in all_links:
-                    href = link.get('href', '')
-                    if '/title/tt' in href:
-                        title_url_tag = link
-                        xbmc.log(f"service.remove.black.bars.gbm: Found link with /title/tt: {href[:100]}", level=xbmc.LOGDEBUG)
-                        break
-            
+            # Use simple selector like old code
+            title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t')
             if title_url_tag:
-                # Log what we found
-                tag_name = title_url_tag.name if hasattr(title_url_tag, 'name') else 'unknown'
-                tag_attrs = str(title_url_tag.attrs)[:200] if hasattr(title_url_tag, 'attrs') else 'no attrs'
-                xbmc.log(f"service.remove.black.bars.gbm: Found element: {tag_name}, attrs: {tag_attrs}", level=xbmc.LOGDEBUG)
+                xbmc.log("service.remove.black.bars.gbm: [IMDb] Found title element with selector '.ipc-metadata-list-summary-item__t'", level=xbmc.LOGDEBUG)
+                try:
+                    # Try to get href directly like old code
+                    title_url = title_url_tag['href']
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found href in title element: {title_url}", level=xbmc.LOGDEBUG)
+                except (KeyError, TypeError):
+                    # Fallback: try to find link inside
+                    xbmc.log("service.remove.black.bars.gbm: [IMDb] No 'href' in title element, looking for link inside", level=xbmc.LOGDEBUG)
+                    link_tag = title_url_tag.find('a', href=True)
+                    if link_tag:
+                        title_url = link_tag.get('href')
+                        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found href in link inside: {title_url}", level=xbmc.LOGDEBUG)
+                    else:
+                        xbmc.log("service.remove.black.bars.gbm: [IMDb] No link found in title element", level=xbmc.LOGWARNING)
+                        # Clean up before returning
+                        soup = None
+                        return None
                 
-                # Try to get href
-                title_url = title_url_tag.get('href')
-                if not title_url:
-                    # Log all attributes for debugging
-                    all_attrs = title_url_tag.attrs if hasattr(title_url_tag, 'attrs') else {}
-                    xbmc.log(f"service.remove.black.bars.gbm: No 'href' attribute. All attrs: {all_attrs}", level=xbmc.LOGWARNING)
-                    # Try to get href from parent or child
-                    if hasattr(title_url_tag, 'parent') and title_url_tag.parent:
-                        parent_href = title_url_tag.parent.get('href') if hasattr(title_url_tag.parent, 'get') else None
-                        if parent_href:
-                            title_url = parent_href
-                            xbmc.log(f"service.remove.black.bars.gbm: Found href in parent: {title_url}", level=xbmc.LOGDEBUG)
-                    # Try finding href in children
-                    if not title_url and hasattr(title_url_tag, 'find'):
-                        child_link = title_url_tag.find('a', href=True)
-                        if child_link:
-                            title_url = child_link.get('href')
-                            xbmc.log(f"service.remove.black.bars.gbm: Found href in child: {title_url}", level=xbmc.LOGDEBUG)
-                
-                if title_url:
-                    # Ensure it's a full URL or relative path
-                    if not title_url.startswith('http'):
-                        if not title_url.startswith('/'):
-                            title_url = '/' + title_url
-                    imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0]
-                    xbmc.log(f"service.remove.black.bars.gbm: Extracted IMDb number: {imdb_number}", level=xbmc.LOGDEBUG)
-                    URL = BASE_URL + title_url.lstrip('/')
-                else:
-                    xbmc.log("service.remove.black.bars.gbm: No 'href' attribute found in title_url_tag after all attempts", level=xbmc.LOGWARNING)
-                    return None
+                imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0]
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Extracted IMDb number from URL: {imdb_number}", level=xbmc.LOGDEBUG)
+                URL = BASE_URL + title_url.lstrip('/')
             else:
-                # Log what we found in the page for debugging
-                xbmc.log("service.remove.black.bars.gbm: No title found in IMDb search results", level=xbmc.LOGWARNING)
-                # Try to find any clues in the HTML
+                xbmc.log("service.remove.black.bars.gbm: [IMDb] No title found in IMDb search results with selector '.ipc-metadata-list-summary-item__t'", level=xbmc.LOGWARNING)
+                # Log page preview for debugging (only first 500 chars to avoid memory issues)
                 page_preview = search_page.text[:500] if len(search_page.text) > 500 else search_page.text
-                xbmc.log(f"service.remove.black.bars.gbm: Page preview: {page_preview}", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Page preview: {page_preview}", level=xbmc.LOGDEBUG)
+                # Clean up before returning
+                soup = None
                 return None
+            
+            # Clean up search page soup after use
+            soup = None
 
+        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Fetching title page: {URL}", level=xbmc.LOGDEBUG)
         title_page, error = _fetch_with_retry(URL, HEADERS)
         if error:
-            xbmc.log("service.remove.black.bars.gbm: Error fetching IMDb title page: " + str(error), level=xbmc.LOGWARNING)
+            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Error fetching IMDb title page: {error}", level=xbmc.LOGWARNING)
             return None
-            
+        
+        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Title page fetched successfully, length: {len(title_page.text)}", level=xbmc.LOGDEBUG)
         soup = BeautifulSoup(title_page.text, 'html.parser')
 
         # this below could have worked instead but for some reason SoupSieve not working inside Kodi
-        aspect_ratio_tags = soup.find(
-            attrs={"data-testid": "title-techspec_aspectratio"})
+        aspect_ratio_tags = soup.find(attrs={"data-testid": "title-techspec_aspectratio"})
         
         aspect_ratio = None
         
         if aspect_ratio_tags:
-            aspect_ratio_item = aspect_ratio_tags.select_one(
-                ".ipc-metadata-list-item__list-content-item")
+            xbmc.log("service.remove.black.bars.gbm: [IMDb] Found aspect ratio tags with data-testid", level=xbmc.LOGDEBUG)
+            aspect_ratio_item = aspect_ratio_tags.select_one(".ipc-metadata-list-item__list-content-item")
             
             if aspect_ratio_item:
                 aspect_ratio_full = aspect_ratio_item.decode_contents()
-
-                """aspect_ratio_full = soup.find(
-                    attrs={"data-testid": "title-techspec_aspectratio"}).css.select(".ipc-metadata-list-item__list-content-item")[0].decode_contents()
-                    """
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Aspect ratio full text: {aspect_ratio_full}", level=xbmc.LOGDEBUG)
 
                 if aspect_ratio_full:
                     aspect_ratio = aspect_ratio_full.split(':')[0].replace('.', '')
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Extracted aspect ratio: {aspect_ratio}", level=xbmc.LOGINFO)
+        else:
+            xbmc.log("service.remove.black.bars.gbm: [IMDb] No aspect ratio tags found with data-testid, trying technical specs page", level=xbmc.LOGDEBUG)
         
         if not aspect_ratio and imdb_number:
             # check if video has multiple aspect ratios
             try:
                 URL = "{}/title/{}/technical/".format(BASE_URL, imdb_number)
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Fetching technical specs page: {URL}", level=xbmc.LOGDEBUG)
                 tech_specs_page, error = _fetch_with_retry(URL, HEADERS)
                 if error:
-                    raise error
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Error fetching technical specs page: {error}", level=xbmc.LOGWARNING)
+                    # Clean up before returning
+                    soup = None
+                    return None
+                
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Technical specs page fetched successfully", level=xbmc.LOGDEBUG)
+                # Clean up previous soup before creating new one
+                soup = None
                 soup = BeautifulSoup(tech_specs_page.text, 'html.parser')
                 aspect_ratio_container = soup.select_one("#aspectratio")
                 
                 if aspect_ratio_container:
+                    xbmc.log("service.remove.black.bars.gbm: [IMDb] Found aspect ratio container", level=xbmc.LOGDEBUG)
                     aspect_ratio_li = aspect_ratio_container.find_all("li")
+                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found {len(aspect_ratio_li)} aspect ratio entries", level=xbmc.LOGDEBUG)
+                    
                     if len(aspect_ratio_li) > 1:
                         aspect_ratios = []
 
                         for li in aspect_ratio_li:
-                            aspect_ratio_item = li.select_one(
-                                ".ipc-metadata-list-item__list-content-item")
+                            aspect_ratio_item = li.select_one(".ipc-metadata-list-item__list-content-item")
                             
                             if not aspect_ratio_item:
                                 continue
@@ -218,21 +183,51 @@ def getOriginalAspectRatio(title, imdb_number=None):
                             sub_text_item = li.select_one(".ipc-metadata-list-item__list-content-item--subText")
                             if sub_text_item:
                                 sub_text = sub_text_item.decode_contents()
+                                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Found aspect ratio {aspect_ratio} with subtext: {sub_text}", level=xbmc.LOGDEBUG)
                                 
                                 if sub_text == "(theatrical ratio)":
-                                    xbmc.log("service.remove.black.bars.gbm: using theatrical ratio " + str(aspect_ratio), level=xbmc.LOGINFO)
+                                    xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Using theatrical ratio: {aspect_ratio}", level=xbmc.LOGINFO)
+                                    # Clean up before returning
+                                    soup = None
                                     return aspect_ratio
                             
                             aspect_ratios.append(aspect_ratio)
 
+                        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Multiple aspect ratios found: {aspect_ratios}", level=xbmc.LOGDEBUG)
+                        # Clean up before returning
+                        soup = None
                         return aspect_ratios
+                    else:
+                        xbmc.log("service.remove.black.bars.gbm: [IMDb] Only one aspect ratio entry found, skipping multiple ratio logic", level=xbmc.LOGDEBUG)
+                else:
+                    xbmc.log("service.remove.black.bars.gbm: [IMDb] No aspect ratio container found in technical specs", level=xbmc.LOGDEBUG)
             except requests.RequestException as e:
-                xbmc.log("service.remove.black.bars.gbm: Error fetching technical specs page: " + str(e), level=xbmc.LOGWARNING)
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Error fetching technical specs page: {e}", level=xbmc.LOGWARNING)
+                soup = None
             except Exception as e:
-                xbmc.log("service.remove.black.bars.gbm: Error parsing technical specs: " + str(e), level=xbmc.LOGWARNING)
+                xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Error parsing technical specs: {e}", level=xbmc.LOGWARNING)
+                soup = None
 
+        # Clean up soup before returning
+        soup = None
+        
+        if aspect_ratio:
+            xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Returning aspect ratio: {aspect_ratio}", level=xbmc.LOGINFO)
+        else:
+            xbmc.log("service.remove.black.bars.gbm: [IMDb] No aspect ratio found", level=xbmc.LOGWARNING)
         return aspect_ratio
     except Exception as e:
         # Catch-all pour éviter les fuites mémoire dues aux exceptions non gérées
-        xbmc.log("service.remove.black.bars.gbm: Unexpected error in getOriginalAspectRatio: " + str(e), level=xbmc.LOGERROR)
+        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Unexpected error in getOriginalAspectRatio: {e}", level=xbmc.LOGERROR)
+        import traceback
+        xbmc.log(f"service.remove.black.bars.gbm: [IMDb] Traceback: {traceback.format_exc()}", level=xbmc.LOGERROR)
+        # Clean up all objects in case of exception
+        soup = None
         return None
+    finally:
+        # Explicit cleanup to help garbage collection
+        # Note: requests automatically closes connections, but we clear references
+        search_page = None
+        title_page = None
+        tech_specs_page = None
+        soup = None
