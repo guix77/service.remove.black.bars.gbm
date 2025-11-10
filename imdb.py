@@ -55,25 +55,77 @@ def getOriginalAspectRatio(title, imdb_number=None):
             # lxml parser would have been better but not currently supported in Kodi
             soup = BeautifulSoup(search_page.text, 'html.parser')
 
-            title_url_tag = soup.select_one(
-                '.ipc-metadata-list-summary-item__t')
+            # Try multiple selectors to find the title link
+            title_url_tag = None
+            title_url = None
+            
+            # Strategy 1: Direct link selector
+            title_url_tag = soup.select_one('.ipc-metadata-list-summary-item__t a')
             if title_url_tag:
-                # we have matches, pick the first one
-                # Use .get() to safely access 'href' attribute
+                xbmc.log("service.remove.black.bars.gbm: Found link with selector '.ipc-metadata-list-summary-item__t a'", level=xbmc.LOGDEBUG)
+            else:
+                # Strategy 2: Find title element then link inside
+                title_element = soup.select_one('.ipc-metadata-list-summary-item__t')
+                if title_element:
+                    xbmc.log("service.remove.black.bars.gbm: Found title element, looking for link inside", level=xbmc.LOGDEBUG)
+                    title_url_tag = title_element.find('a')
+                    if not title_url_tag:
+                        # Try finding any link in the element
+                        title_url_tag = title_element.find('a', href=True)
+                else:
+                    # Strategy 3: Try alternative selectors
+                    xbmc.log("service.remove.black.bars.gbm: Trying alternative selectors", level=xbmc.LOGDEBUG)
+                    # Try finding any link with /title/ in href
+                    all_links = soup.find_all('a', href=True)
+                    for link in all_links:
+                        href = link.get('href', '')
+                        if '/title/tt' in href:
+                            title_url_tag = link
+                            xbmc.log(f"service.remove.black.bars.gbm: Found link with /title/tt: {href[:100]}", level=xbmc.LOGDEBUG)
+                            break
+            
+            if title_url_tag:
+                # Log what we found
+                tag_name = title_url_tag.name if hasattr(title_url_tag, 'name') else 'unknown'
+                tag_attrs = str(title_url_tag.attrs)[:200] if hasattr(title_url_tag, 'attrs') else 'no attrs'
+                xbmc.log(f"service.remove.black.bars.gbm: Found element: {tag_name}, attrs: {tag_attrs}", level=xbmc.LOGDEBUG)
+                
+                # Try to get href
                 title_url = title_url_tag.get('href')
                 if not title_url:
-                    xbmc.log("service.remove.black.bars.gbm: No 'href' attribute found in title_url_tag", level=xbmc.LOGWARNING)
+                    # Log all attributes for debugging
+                    all_attrs = title_url_tag.attrs if hasattr(title_url_tag, 'attrs') else {}
+                    xbmc.log(f"service.remove.black.bars.gbm: No 'href' attribute. All attrs: {all_attrs}", level=xbmc.LOGWARNING)
+                    # Try to get href from parent or child
+                    if hasattr(title_url_tag, 'parent') and title_url_tag.parent:
+                        parent_href = title_url_tag.parent.get('href') if hasattr(title_url_tag.parent, 'get') else None
+                        if parent_href:
+                            title_url = parent_href
+                            xbmc.log(f"service.remove.black.bars.gbm: Found href in parent: {title_url}", level=xbmc.LOGDEBUG)
+                    # Try finding href in children
+                    if not title_url and hasattr(title_url_tag, 'find'):
+                        child_link = title_url_tag.find('a', href=True)
+                        if child_link:
+                            title_url = child_link.get('href')
+                            xbmc.log(f"service.remove.black.bars.gbm: Found href in child: {title_url}", level=xbmc.LOGDEBUG)
+                
+                if title_url:
+                    # Ensure it's a full URL or relative path
+                    if not title_url.startswith('http'):
+                        if not title_url.startswith('/'):
+                            title_url = '/' + title_url
+                    imdb_number = title_url.rsplit('/title/', 1)[-1].split("/")[0]
+                    xbmc.log(f"service.remove.black.bars.gbm: Extracted IMDb number: {imdb_number}", level=xbmc.LOGDEBUG)
+                    URL = BASE_URL + title_url.lstrip('/')
+                else:
+                    xbmc.log("service.remove.black.bars.gbm: No 'href' attribute found in title_url_tag after all attempts", level=xbmc.LOGWARNING)
                     return None
-                imdb_number = title_url.rsplit(
-                    '/title/', 1)[-1].split("/")[0]
-                # this below could have worked instead but for some reason SoupSieve not working inside Kodi
-                """title_url = soup.css.select(
-                    '.ipc-metadata-list-summary-item__t')[0].get('href')
-                    """
-
-                URL = BASE_URL + title_url
             else:
+                # Log what we found in the page for debugging
                 xbmc.log("service.remove.black.bars.gbm: No title found in IMDb search results", level=xbmc.LOGWARNING)
+                # Try to find any clues in the HTML
+                page_preview = search_page.text[:500] if len(search_page.text) > 500 else search_page.text
+                xbmc.log(f"service.remove.black.bars.gbm: Page preview: {page_preview}", level=xbmc.LOGDEBUG)
                 return None
 
         title_page, error = _fetch_with_retry(URL, HEADERS)
