@@ -3,5 +3,7 @@
     <category label="General">
         <setting id="automatically_execute" type="bool" label="Automatically execute" default="true"/>
         <setting id="enable_imdb_fallback" type="bool" label="Enable IMDb fallback (uses internet)" default="false"/>
+        <setting id="enable_cache" type="bool" label="Enable IMDb cache" default="true"/>
+        <setting id="clear_cache" type="action" label="Clear IMDb cache" action="RunAddon(service.remove.black.bars.gbm,clear_cache)"/>
     </category>
 </settings>
