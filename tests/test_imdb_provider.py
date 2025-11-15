@@ -3,9 +3,9 @@ Tests pour IMDbProvider.
 Note: Ces tests mockent getOriginalAspectRatio() car on ne veut pas faire
 de vraies requêtes HTTP dans les tests unitaires.
 """
-import unittest
 import sys
 import os
+import pytest
 
 # Ajouter le répertoire parent au path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -36,80 +36,76 @@ def mock_get_original_aspect_ratio(title, imdb_number=None):
     return None
 
 
-class TestIMDbProvider(unittest.TestCase):
-    """Tests pour IMDbProvider"""
-    
-    def setUp(self):
-        """Initialiser le provider"""
-        self.provider = IMDbProvider()
-    
-    def tearDown(self):
-        """Nettoyage après test"""
-        pass
-    
-    def test_get_aspect_ratio_with_imdb_number(self):
-        """Test avec IMDb number"""
-        # Patcher getOriginalAspectRatio dans le module addon
-        original_func = addon_module.getOriginalAspectRatio
-        addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
-        try:
-            ratio = self.provider.get_aspect_ratio("Any Title", imdb_number="tt1234567")
-            self.assertEqual(ratio, 235)
-        finally:
-            addon_module.getOriginalAspectRatio = original_func
-    
-    def test_get_aspect_ratio_with_title(self):
-        """Test avec titre"""
-        # Patcher getOriginalAspectRatio dans le module addon
-        original_func = addon_module.getOriginalAspectRatio
-        addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
-        try:
-            ratio = self.provider.get_aspect_ratio("Test Movie")
-            self.assertEqual(ratio, 200)
-        finally:
-            addon_module.getOriginalAspectRatio = original_func
-    
-    def test_get_aspect_ratio_multiple_ratios(self):
-        """Test avec plusieurs ratios (devrait prendre le premier)"""
-        # Patcher getOriginalAspectRatio dans le module addon
-        original_func = addon_module.getOriginalAspectRatio
-        addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
-        try:
-            ratio = self.provider.get_aspect_ratio("Multiple Ratios")
-            self.assertEqual(ratio, 185)  # Premier de la liste
-        finally:
-            addon_module.getOriginalAspectRatio = original_func
-    
-    def test_get_aspect_ratio_not_found(self):
-        """Test quand aucun ratio n'est trouvé"""
-        ratio = self.provider.get_aspect_ratio("Error Movie")
-        self.assertIsNone(ratio)
-    
-    def test_get_aspect_ratio_none_title(self):
-        """Test avec titre None"""
-        ratio = self.provider.get_aspect_ratio(None)
-        self.assertIsNone(ratio)
-    
-    def test_get_aspect_ratio_empty_title(self):
-        """Test avec titre vide"""
-        ratio = self.provider.get_aspect_ratio("")
-        self.assertIsNone(ratio)
-    
-    def test_error_handling(self):
-        """Test gestion d'erreur (si getOriginalAspectRatio lève une exception)"""
-        def failing_mock(title, imdb_number=None):
-            raise Exception("Network error")
-        
-        # Patcher getOriginalAspectRatio dans le module addon
-        original_func = addon_module.getOriginalAspectRatio
-        addon_module.getOriginalAspectRatio = failing_mock
-        try:
-            ratio = self.provider.get_aspect_ratio("Test Movie")
-            self.assertIsNone(ratio)
-        finally:
-            addon_module.getOriginalAspectRatio = original_func
+@pytest.fixture
+def provider():
+    """Fixture pour créer un provider"""
+    return IMDbProvider()
 
 
-if __name__ == "__main__":
-    unittest.main()
+def test_get_aspect_ratio_with_imdb_number(provider):
+    """Test avec IMDb number"""
+    # Patcher getOriginalAspectRatio dans le module addon
+    original_func = addon_module.getOriginalAspectRatio
+    addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
+    try:
+        ratio = provider.get_aspect_ratio("Any Title", imdb_number="tt1234567")
+        assert ratio == 235
+    finally:
+        addon_module.getOriginalAspectRatio = original_func
 
+
+def test_get_aspect_ratio_with_title(provider):
+    """Test avec titre"""
+    # Patcher getOriginalAspectRatio dans le module addon
+    original_func = addon_module.getOriginalAspectRatio
+    addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
+    try:
+        ratio = provider.get_aspect_ratio("Test Movie")
+        assert ratio == 200
+    finally:
+        addon_module.getOriginalAspectRatio = original_func
+
+
+def test_get_aspect_ratio_multiple_ratios(provider):
+    """Test avec plusieurs ratios (devrait prendre le premier)"""
+    # Patcher getOriginalAspectRatio dans le module addon
+    original_func = addon_module.getOriginalAspectRatio
+    addon_module.getOriginalAspectRatio = mock_get_original_aspect_ratio
+    try:
+        ratio = provider.get_aspect_ratio("Multiple Ratios")
+        assert ratio == 185  # Premier de la liste
+    finally:
+        addon_module.getOriginalAspectRatio = original_func
+
+
+def test_get_aspect_ratio_not_found(provider):
+    """Test quand aucun ratio n'est trouvé"""
+    ratio = provider.get_aspect_ratio("Error Movie")
+    assert ratio is None
+
+
+def test_get_aspect_ratio_none_title(provider):
+    """Test avec titre None"""
+    ratio = provider.get_aspect_ratio(None)
+    assert ratio is None
+
+
+def test_get_aspect_ratio_empty_title(provider):
+    """Test avec titre vide"""
+    ratio = provider.get_aspect_ratio("")
+    assert ratio is None
+
+
+def test_error_handling(provider):
+    """Test gestion d'erreur (si getOriginalAspectRatio lève une exception)"""
+    def failing_mock(title, imdb_number=None):
+        raise Exception("Network error")
+    
+    # Patcher getOriginalAspectRatio dans le module addon
+    original_func = addon_module.getOriginalAspectRatio
+    addon_module.getOriginalAspectRatio = failing_mock
+    try:
+        ratio = provider.get_aspect_ratio("Test Movie")
+        assert ratio is None
+    finally:
+        addon_module.getOriginalAspectRatio = original_func

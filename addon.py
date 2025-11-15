@@ -16,11 +16,8 @@ except ImportError:
 
 from imdb import getOriginalAspectRatio
 
-# TODO: Improve IMDb/TVDB ID detection to be more robust across different providers
-# - Handle cases where uniqueid.imdb/tvdb may not be available
-# - Support more providers (Plex, Emby, local files, etc.)
-# - Consider using TVDB ID to find IMDb number for episodes
-# - Add fallback strategies for different metadata sources
+# Note: IMDb number is obtained via JSON-RPC Player.GetItem with uniqueid property.
+# This is the standard method as there's no direct InfoLabel equivalent to VideoPlayer.VideoAspect.
 
 ZOOM_RATE_LIMIT_MS = 500
 
@@ -68,7 +65,7 @@ def get_writable_cache_path(filename="cache.json"):
                     return None
     except Exception as e:
         xbmc.log(f"service.remove.black.bars.gbm: Profile directory not available: {e}", level=xbmc.LOGDEBUG)
-    
+
     # If profile directory is not writable, return None (cache disabled)
     xbmc.log("service.remove.black.bars.gbm: Profile cache directory not available, cache disabled", level=xbmc.LOGWARNING)
     return None
@@ -79,7 +76,6 @@ class KodiMetadataProvider:
         """
         Get aspect ratio from Kodi metadata using VideoPlayer.VideoAspect InfoLabel.
         Returns aspect ratio as integer (e.g., 178 for 16:9, 240 for 2.40:1).
-        See ASPECT_RATIO_DETECTION.md for alternative methods (JSON-RPC).
         """
         try:
             label = xbmc.getInfoLabel("VideoPlayer.VideoAspect")
@@ -148,7 +144,7 @@ class JsonCacheProvider:
                 xbmc.log(f"service.remove.black.bars.gbm: Cache location: {self.path}", level=xbmc.LOGINFO)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache to {self.path}: {e}", level=xbmc.LOGWARNING)
-    
+
     def clear(self):
         """Clear the cache"""
         try:
@@ -231,7 +227,6 @@ class ZoomApplier:
 
     def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False):
         try:
-            # Skip if same ratio already applied
             if self.last_applied_ratio == detected_ratio:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom already applied for ratio {detected_ratio}, skipping", level=xbmc.LOGDEBUG)
                 return False
@@ -291,6 +286,7 @@ class Service(xbmc.Player):
                 self.on_av_started()
 
     def _read_settings(self):
+        """Read addon settings."""
         try:
             imdb_enabled = self._addon.getSetting("enable_imdb") == "true"
         except Exception:
@@ -302,12 +298,14 @@ class Service(xbmc.Player):
         return imdb_enabled, zoom_narrow_ratios
 
     def _get_cache_enabled(self):
+        """Check if cache is enabled in settings."""
         try:
             return self._addon.getSetting("enable_cache") == "true"
         except Exception:
             return True
 
     def _extract_title_year(self, video_info_tag):
+        """Extract title and year from video info tag."""
         title = None
         year = None
         try:
@@ -337,8 +335,8 @@ class Service(xbmc.Player):
                 return None
 
             title, year = self._extract_title_year(video_info_tag)
-            
-            # Get IMDb number from JSON-RPC
+
+            # Get IMDb number from JSON-RPC (more reliable than title search)
             imdb_number = None
             try:
                 json_cmd = json.dumps({
@@ -363,29 +361,42 @@ class Service(xbmc.Player):
             
             xbmc.log(f"service.remove.black.bars.gbm: Detecting aspect ratio - title='{title}', year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
 
+            # Get file aspect ratio (may include encoded black bars)
+            file_ratio = self.kodi.get_aspect_ratio(video_info_tag)
+
             # 1) IMDb (first priority, cache only IMDb results)
             imdb_enabled, _ = self._read_settings()
+            imdb_ratio = None
             if imdb_enabled:
-                # Try cache first
-                ratio = self.cache.get(title, year, imdb_id=imdb_number if imdb_number else None)
-                if ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb cache: {ratio}", level=xbmc.LOGINFO)
-                    return ratio
-                
-                # Try IMDb provider
-                xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, fetching from IMDb", level=xbmc.LOGDEBUG)
-                ratio = self.imdb.get_aspect_ratio(title, imdb_number=imdb_number if imdb_number else None)
-                if ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb: {ratio}", level=xbmc.LOGINFO)
-                    self.cache.store(title, year, ratio, imdb_id=imdb_number if imdb_number else None)
-                    return ratio
+                # Try cache first (use IMDb number if available for more precise cache key)
+                imdb_ratio = self.cache.get(title, year, imdb_id=imdb_number)
+                if imdb_ratio:
+                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb cache: {imdb_ratio}", level=xbmc.LOGINFO)
+                else:
+                    # Try IMDb provider (use IMDb number if available for direct access)
+                    xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, fetching from IMDb", level=xbmc.LOGDEBUG)
+                    imdb_ratio = self.imdb.get_aspect_ratio(title, imdb_number=imdb_number)
+                    if imdb_ratio:
+                        xbmc.log(f"service.remove.black.bars.gbm: Using IMDb: {imdb_ratio}", level=xbmc.LOGINFO)
+                        self.cache.store(title, year, imdb_ratio, imdb_id=imdb_number)
+
+            # Compare IMDb ratio (content) with file ratio (may have encoded black bars)
+            if imdb_ratio and file_ratio:
+                difference = abs(file_ratio - imdb_ratio)
+                threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
+                if difference > threshold:
+                    xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGINFO)
+                else:
+                    xbmc.log(f"service.remove.black.bars.gbm: No encoded black bars - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGDEBUG)
+
+            # Return IMDb ratio if available (content ratio), otherwise fallback to file ratio
+            if imdb_ratio:
+                return imdb_ratio
 
             # 2) Kodi metadata (fallback if IMDb unavailable or not found)
-            xbmc.log("service.remove.black.bars.gbm: Trying Kodi metadata", level=xbmc.LOGDEBUG)
-            ratio = self.kodi.get_aspect_ratio(video_info_tag)
-            if ratio:
-                xbmc.log(f"service.remove.black.bars.gbm: Using Kodi metadata: {ratio}", level=xbmc.LOGINFO)
-                return ratio
+            if file_ratio:
+                xbmc.log(f"service.remove.black.bars.gbm: Using Kodi metadata: {file_ratio}", level=xbmc.LOGINFO)
+                return file_ratio
 
             xbmc.log("service.remove.black.bars.gbm: No aspect ratio found from any provider", level=xbmc.LOGDEBUG)
             return None
@@ -397,7 +408,7 @@ class Service(xbmc.Player):
         self.on_av_started()
 
     def onAVChange(self):
-        # Disabled to avoid loop: changing zoom triggers onAVChange which re-applies zoom
+        """Disabled to avoid loop: changing zoom triggers onAVChange which re-applies zoom."""
         pass
 
     def on_av_started(self):
@@ -414,7 +425,6 @@ class Service(xbmc.Player):
                 xbmc.log("service.remove.black.bars.gbm: No aspect ratio detected, skipping zoom", level=xbmc.LOGINFO)
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: on_av_started error: " + str(e), level=xbmc.LOGERROR)
-
 
     def onPlayBackStopped(self):
         try:
