@@ -229,15 +229,17 @@ class ZoomApplier:
             file_ratio: Optional file aspect ratio (may include encoded black bars)
                        If provided and different from detected_ratio, use it for zoom calculation
         """
-        # If file_ratio is provided and different from detected_ratio, we have encoded black bars
-        # Zoom should be calculated from file_ratio to detected_ratio
-        if file_ratio and file_ratio != detected_ratio:
-            return file_ratio / float(detected_ratio)
-        
         # If file_ratio is available and close to 16:9 (177), no need to zoom
         # even if detected_ratio > 177 (file is already 16:9, content fits without black bars)
+        # This check must come FIRST, before checking for encoded black bars
         if file_ratio and 175 <= file_ratio <= 180:
             return 1.0
+        
+        # If file_ratio is provided and different from detected_ratio, we have encoded black bars
+        # Zoom should be calculated from file_ratio to detected_ratio
+        # Only applies if file_ratio is NOT close to 16:9 (checked above)
+        if file_ratio and file_ratio != detected_ratio:
+            return file_ratio / float(detected_ratio)
         
         # Normal zoom calculation
         if detected_ratio > 177:
