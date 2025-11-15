@@ -72,20 +72,25 @@ def get_writable_cache_path(filename="cache.json"):
 
 
 class KodiMetadataProvider:
-    def get_aspect_ratio(self, video_info_tag):
+    def get_aspect_ratio(self, video_info_tag, reason=None):
         """
         Get aspect ratio from Kodi metadata using VideoPlayer.VideoAspect InfoLabel.
         Returns aspect ratio as integer (e.g., 178 for 16:9, 240 for 2.40:1).
+        
+        Args:
+            video_info_tag: Video info tag (unused but kept for compatibility)
+            reason: Optional reason string to include in log message
         """
         try:
+            reason_text = f" {reason}" if reason else ""
             label = xbmc.getInfoLabel("VideoPlayer.VideoAspect")
-            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.VideoAspect returned: '{label}'", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: VideoPlayer.VideoAspect{reason_text} returned: '{label}'", level=xbmc.LOGDEBUG)
             if label and label != "VideoPlayer.VideoAspect":
                 # Format might be "2.35AR" or "2.35" or "2.35:1"
                 cleaned = label.replace("AR", "").split(":")[0].strip()
                 try:
                     ratio = int((float(cleaned) + 0.005) * 100)
-                    xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: {ratio}", level=xbmc.LOGINFO)
+                    xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: {ratio}", level=xbmc.LOGDEBUG)
                     return ratio
                 except ValueError as e:
                     xbmc.log(f"service.remove.black.bars.gbm: Failed to parse VideoPlayer.VideoAspect '{label}': {e}", level=xbmc.LOGDEBUG)
@@ -218,14 +223,29 @@ class ZoomApplier:
             xbmc.log(f"service.remove.black.bars.gbm: _is_video_playing_fullscreen error: {e}", level=xbmc.LOGDEBUG)
             return False
 
-    def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False):
+    def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False, file_ratio=None):
+        """
+        Calculate zoom amount based on detected ratio.
+        
+        Args:
+            detected_ratio: The detected content aspect ratio (e.g., from IMDb)
+            zoom_narrow_ratios: Whether to zoom narrow ratios (< 16:9)
+            file_ratio: Optional file aspect ratio (may include encoded black bars)
+                       If provided and different from detected_ratio, use it for zoom calculation
+        """
+        # If file_ratio is provided and different from detected_ratio, we have encoded black bars
+        # Zoom should be calculated from file_ratio to detected_ratio
+        if file_ratio and file_ratio != detected_ratio:
+            return file_ratio / float(detected_ratio)
+        
+        # Normal zoom calculation
         if detected_ratio > 177:
             return detected_ratio / 177.0
         elif zoom_narrow_ratios and detected_ratio < 177:
             return 177.0 / detected_ratio
         return 1.0
 
-    def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False):
+    def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False, file_ratio=None, title=None):
         try:
             if self.last_applied_ratio == detected_ratio:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom already applied for ratio {detected_ratio}, skipping", level=xbmc.LOGDEBUG)
@@ -238,8 +258,11 @@ class ZoomApplier:
             if not self._is_video_playing_fullscreen(player):
                 xbmc.log("service.remove.black.bars.gbm: Video not playing fullscreen", level=xbmc.LOGDEBUG)
                 return False
-            zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios)
-            xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount} for ratio {detected_ratio}", level=xbmc.LOGINFO)
+            zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios, file_ratio)
+            title_display = title or "video"
+            xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount:.2f} on {title_display} to remove black bars", level=xbmc.LOGINFO)
+            if file_ratio and file_ratio != detected_ratio:
+                xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars - file ratio: {file_ratio}, content ratio: {detected_ratio}", level=xbmc.LOGDEBUG)
             json_cmd = json.dumps({
                 "jsonrpc": "2.0",
                 "method": "Player.SetViewMode",
@@ -359,44 +382,55 @@ class Service(xbmc.Player):
             except Exception:
                 pass
             
+            # Format title for logging
+            title_display = title or "Unknown"
+            if year:
+                title_display = f"{title_display} ({year})"
+            
+            xbmc.log(f"service.remove.black.bars.gbm: Detecting black bars for {title_display}", level=xbmc.LOGINFO)
             xbmc.log(f"service.remove.black.bars.gbm: Detecting aspect ratio - title='{title}', year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
-
-            # Get file aspect ratio (may include encoded black bars)
-            file_ratio = self.kodi.get_aspect_ratio(video_info_tag)
 
             # 1) IMDb (first priority, cache only IMDb results)
             imdb_enabled, _ = self._read_settings()
             imdb_ratio = None
+            file_ratio = None
+            
             if imdb_enabled:
                 # Try cache first (use IMDb number if available for more precise cache key)
                 imdb_ratio = self.cache.get(title, year, imdb_id=imdb_number)
                 if imdb_ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb cache: {imdb_ratio}", level=xbmc.LOGINFO)
+                    xbmc.log(f"service.remove.black.bars.gbm: Using IMDb cache: {imdb_ratio}", level=xbmc.LOGDEBUG)
                 else:
                     # Try IMDb provider (use IMDb number if available for direct access)
                     xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, fetching from IMDb", level=xbmc.LOGDEBUG)
                     imdb_ratio = self.imdb.get_aspect_ratio(title, imdb_number=imdb_number)
                     if imdb_ratio:
-                        xbmc.log(f"service.remove.black.bars.gbm: Using IMDb: {imdb_ratio}", level=xbmc.LOGINFO)
+                        xbmc.log(f"service.remove.black.bars.gbm: Using IMDb: {imdb_ratio}", level=xbmc.LOGDEBUG)
                         self.cache.store(title, year, imdb_ratio, imdb_id=imdb_number)
-
-            # Compare IMDb ratio (content) with file ratio (may have encoded black bars)
-            if imdb_ratio and file_ratio:
-                difference = abs(file_ratio - imdb_ratio)
-                threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
-                if difference > threshold:
-                    xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGINFO)
-                else:
-                    xbmc.log(f"service.remove.black.bars.gbm: No encoded black bars - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGDEBUG)
-
-            # Return IMDb ratio if available (content ratio), otherwise fallback to file ratio
-            if imdb_ratio:
-                return imdb_ratio
+                
+                # If we have IMDb ratio, get file ratio for encoded black bars detection
+                if imdb_ratio:
+                    file_ratio = self.kodi.get_aspect_ratio(video_info_tag, reason="for encoded black bars detection")
+                    # Compare IMDb ratio (content) with file ratio (may have encoded black bars)
+                    if file_ratio:
+                        difference = abs(file_ratio - imdb_ratio)
+                        threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
+                        if difference > threshold:
+                            xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGDEBUG)
+                        else:
+                            xbmc.log(f"service.remove.black.bars.gbm: No encoded black bars - IMDb ratio: {imdb_ratio}, File ratio: {file_ratio}, Difference: {difference}", level=xbmc.LOGDEBUG)
 
             # 2) Kodi metadata (fallback if IMDb unavailable or not found)
-            if file_ratio:
-                xbmc.log(f"service.remove.black.bars.gbm: Using Kodi metadata: {file_ratio}", level=xbmc.LOGINFO)
-                return file_ratio
+            if not imdb_ratio:
+                file_ratio = self.kodi.get_aspect_ratio(video_info_tag, reason="for ratio detection")
+                if file_ratio:
+                    xbmc.log(f"service.remove.black.bars.gbm: Using Kodi metadata: {file_ratio}", level=xbmc.LOGDEBUG)
+
+            # Return tuple (detected_ratio, file_ratio, title_display)
+            # detected_ratio is IMDb ratio if available, otherwise file_ratio
+            detected_ratio = imdb_ratio if imdb_ratio else file_ratio
+            if detected_ratio:
+                return (detected_ratio, file_ratio, title_display)
 
             xbmc.log("service.remove.black.bars.gbm: No aspect ratio found from any provider", level=xbmc.LOGDEBUG)
             return None
@@ -413,16 +447,17 @@ class Service(xbmc.Player):
 
     def on_av_started(self):
         try:
-            xbmc.log("service.remove.black.bars.gbm: on_av_started called", level=xbmc.LOGINFO)
+            xbmc.log("service.remove.black.bars.gbm: on_av_started called", level=xbmc.LOGDEBUG)
             self.zoom.last_applied_ratio = None
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "on")
-            ratio = self._detect_aspect_ratio()
-            xbmc.log(f"service.remove.black.bars.gbm: Detected aspect ratio: {ratio}", level=xbmc.LOGINFO)
-            if ratio:
+            result = self._detect_aspect_ratio()
+            if result:
+                detected_ratio, file_ratio, title_display = result
+                xbmc.log(f"service.remove.black.bars.gbm: Detected aspect ratio: {detected_ratio}", level=xbmc.LOGDEBUG)
                 _, zoom_narrow_ratios = self._read_settings()
-                self.zoom.apply_zoom(ratio, self, zoom_narrow_ratios)
+                self.zoom.apply_zoom(detected_ratio, self, zoom_narrow_ratios, file_ratio, title_display)
             else:
-                xbmc.log("service.remove.black.bars.gbm: No aspect ratio detected, skipping zoom", level=xbmc.LOGINFO)
+                xbmc.log("service.remove.black.bars.gbm: No aspect ratio detected, skipping zoom", level=xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: on_av_started error: " + str(e), level=xbmc.LOGERROR)
 

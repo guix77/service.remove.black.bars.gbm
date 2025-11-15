@@ -114,10 +114,13 @@ def test_detect_encoded_black_bars():
     service.isPlayingVideo = lambda: True
     service.getVideoInfoTag = lambda: video_tag
     
-    ratio = service._detect_aspect_ratio()
+    result = service._detect_aspect_ratio()
     
-    # Vérifier que le ratio IMDb est retourné
-    assert ratio == 235
+    # Vérifier que le ratio IMDb est retourné (premier élément du tuple)
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 235
+    assert file_ratio == 178
     
     # Vérifier qu'un log de détection a été créé
     import xbmc
@@ -140,10 +143,13 @@ def test_no_encoded_black_bars_similar_ratios():
     service.isPlayingVideo = lambda: True
     service.getVideoInfoTag = lambda: video_tag
     
-    ratio = service._detect_aspect_ratio()
+    result = service._detect_aspect_ratio()
     
-    # Vérifier que le ratio IMDb est retourné
-    assert ratio == 235
+    # Vérifier que le ratio IMDb est retourné (premier élément du tuple)
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 235
+    assert file_ratio == 237
     
     # Vérifier qu'aucun log de détection n'a été créé
     import xbmc
@@ -167,10 +173,13 @@ def test_no_encoded_black_bars_identical_ratios():
     service.isPlayingVideo = lambda: True
     service.getVideoInfoTag = lambda: video_tag
     
-    ratio = service._detect_aspect_ratio()
+    result = service._detect_aspect_ratio()
     
-    # Vérifier que le ratio IMDb est retourné
-    assert ratio == 235
+    # Vérifier que le ratio IMDb est retourné (premier élément du tuple)
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 235
+    assert file_ratio == 235
     
     # Vérifier qu'aucun log de détection n'a été créé
     import xbmc
@@ -195,7 +204,21 @@ def test_fallback_to_file_ratio_when_no_imdb():
     # Mocker IMDbProvider pour retourner None
     service.imdb.get_aspect_ratio = lambda title, imdb_number=None: None
     
-    ratio = service._detect_aspect_ratio()
+    # Désactiver IMDb pour forcer le fallback
+    mock_addon = mock_kodi.MockAddon(settings={
+        "enable_imdb": "false",
+        "enable_cache": "false",
+        "zoom_narrow_ratios": "false"
+    })
+    sys.modules['xbmcaddon'].Addon = lambda: mock_addon
+    if hasattr(addon_module, 'xbmcaddon'):
+        addon_module.xbmcaddon.Addon = lambda: mock_addon
+    service._addon = mock_addon
     
-    # Vérifier que le ratio fichier est retourné
-    assert ratio == 178
+    result = service._detect_aspect_ratio()
+    
+    # Vérifier que le ratio fichier est retourné (premier élément du tuple)
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 178
+    assert file_ratio == 178
