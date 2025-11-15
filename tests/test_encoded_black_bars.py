@@ -149,6 +149,7 @@ def test_no_encoded_black_bars_similar_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
+    # file_ratio is now always returned if available (for zoom calculation)
     assert file_ratio == 237
     
     # Vérifier qu'aucun log de détection n'a été créé
@@ -179,6 +180,7 @@ def test_no_encoded_black_bars_identical_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
+    # file_ratio is now always returned if available (for zoom calculation)
     assert file_ratio == 235
     
     # Vérifier qu'aucun log de détection n'a été créé
@@ -221,4 +223,5 @@ def test_fallback_to_file_ratio_when_no_imdb():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 178
+    # When IMDb is disabled, file_ratio is used as detected_ratio
     assert file_ratio == 178
