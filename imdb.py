@@ -3,10 +3,27 @@ import time
 from bs4 import BeautifulSoup
 
 import xbmc
+import xbmcaddon
 import xbmcgui
 
 def notify(msg):
-    xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, 1000)
+    """
+    Show notification with configurable duration from settings.
+    
+    Args:
+        msg: Message to display
+    """
+    try:
+        addon = xbmcaddon.Addon()
+        setting_value = addon.getSetting("notification_duration")
+        if setting_value:
+            duration_ms = int(setting_value)
+        else:
+            duration_ms = 2000
+    except Exception:
+        duration_ms = 2000
+    # Kodi notification() time parameter expects milliseconds (default: 5000ms)
+    xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, duration_ms)
 
 
 def _parse_aspect_ratio(aspect_ratio_text):

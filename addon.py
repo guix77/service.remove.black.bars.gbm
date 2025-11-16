@@ -32,15 +32,20 @@ def notify(msg, duration_ms=None):
     
     Args:
         msg: Message to display
-        duration_ms: Duration in milliseconds (if None, uses setting)
+        duration_ms: Duration in milliseconds (if None, uses setting, default: 2000ms)
     """
     if duration_ms is None:
         # Get duration from settings (default: 2000ms)
         try:
             addon = xbmcaddon.Addon()
-            duration_ms = int(addon.getSetting("notification_duration") or "2000")
+            setting_value = addon.getSetting("notification_duration")
+            if setting_value:
+                duration_ms = int(setting_value)
+            else:
+                duration_ms = 2000
         except Exception:
             duration_ms = 2000
+    # Kodi notification() time parameter expects milliseconds (default: 5000ms)
     xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, duration_ms)
 
 
@@ -381,9 +386,13 @@ class ZoomApplier:
             self.last_zoom_time_ms = now_ms
             self.last_applied_ratio = detected_ratio
             if zoom_amount > 1.0:
-                notify("Zoom {:.2f}x applied".format(zoom_amount))
+                msg = "Zoom {:.2f}x applied".format(zoom_amount)
+                xbmc.log(f"service.remove.black.bars.gbm: Showing notification: '{msg}'", level=xbmc.LOGDEBUG)
+                notify(msg)
             else:
-                notify("No zoom needed")
+                msg = "No zoom needed"
+                xbmc.log(f"service.remove.black.bars.gbm: Showing notification: '{msg}'", level=xbmc.LOGDEBUG)
+                notify(msg)
             return True
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: Zoom error: " + str(e), level=xbmc.LOGERROR)
