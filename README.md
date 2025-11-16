@@ -30,12 +30,12 @@ A Kodi addon that automatically removes black bars by applying intelligent zoom 
 ### General Settings
 
 - **Enable IMDb**: Enable/disable IMDb aspect ratio detection (default: enabled)
-  - When enabled, uses IMDb API to get accurate aspect ratios
+  - When enabled, scrapes IMDb website to get accurate aspect ratios
   - Requires internet connection
   - Falls back to local metadata if unavailable
 
 - **Enable IMDb cache**: Enable/disable caching of IMDb results (default: enabled)
-  - Caches aspect ratios locally to reduce API calls
+  - Caches aspect ratios locally to reduce web requests
   - Cache location: Kodi addon profile directory
 
 - **Zoom narrow ratios**: Enable zooming for narrow aspect ratios like 4:3 (default: disabled)
@@ -80,7 +80,7 @@ RunAddon(service.remove.black.bars.gbm,toggle)
 ### Aspect Ratio Detection
 
 1. **IMDb Detection (Primary)**:
-   - Queries IMDb API using video title, year, and IMDb ID
+   - Scrapes IMDb website using video title, year, and IMDb ID
    - Gets the original aspect ratio of the content
    - Caches results locally for future use
 
@@ -150,7 +150,8 @@ When IMDb ratio is available:
 1. **Check internet connection**: IMDb detection requires internet
 2. **Check IMDb setting**: Verify "Enable IMDb" is enabled in addon settings
 3. **Check video metadata**: Ensure video has title and year in Kodi library
-4. **Check logs**: Look for IMDb API errors in Kodi logs
+4. **Check logs**: Look for IMDb scraping errors in Kodi logs
+5. **IMDb website changes**: If IMDb changes their website structure, scraping may fail
 
 ### Cache Issues
 
@@ -168,16 +169,16 @@ When IMDb ratio is available:
 
 - **Service**: Main addon service that monitors video playback
 - **ZoomApplier**: Handles zoom calculation and application
-- **IMDbProvider**: Queries IMDb API for aspect ratios
+- **IMDbProvider**: Scrapes IMDb website for aspect ratios
 - **KodiMetadataProvider**: Gets aspect ratios from Kodi metadata
-- **JsonCacheProvider**: Manages local cache with LRU eviction
+- **JsonCacheProvider**: Manages local cache
 
 ### Data Flow
 
 1. Video playback starts → `onAVStarted()` event
 2. Extract video metadata (title, year, IMDb ID)
 3. Check cache for aspect ratio
-4. If not cached, query IMDb API
+4. If not cached, scrape IMDb website
 5. Get file aspect ratio from Kodi
 6. Compare ratios to detect encoded black bars
 7. Calculate zoom amount
@@ -195,7 +196,7 @@ python3 -m pytest tests/ -v
 ### Code Structure
 
 - `addon.py`: Main addon code
-- `imdb.py`: IMDb API integration
+- `imdb.py`: IMDb website scraping integration
 - `tests/`: Unit tests
 - `resources/settings.xml`: Addon settings definition
 
