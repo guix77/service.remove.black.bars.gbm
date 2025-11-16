@@ -22,8 +22,8 @@ from imdb import getOriginalAspectRatio
 ZOOM_RATE_LIMIT_MS = 500
 
 
-def notify(msg):
-    xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, 1000)
+def notify(msg, duration_ms=2000):
+    xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, duration_ms)
 
 
 def translate_profile_path(*paths):
@@ -288,7 +288,9 @@ class ZoomApplier:
             self.last_zoom_time_ms = now_ms
             self.last_applied_ratio = detected_ratio
             if zoom_amount > 1.0:
-                notify("Zoom applied {:.2f}".format(zoom_amount))
+                notify("Zoom {:.2f}x applied".format(zoom_amount))
+            else:
+                notify("No zoom needed")
             return True
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: Zoom error: " + str(e), level=xbmc.LOGERROR)
