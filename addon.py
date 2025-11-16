@@ -21,8 +21,26 @@ from imdb import getOriginalAspectRatio
 
 ZOOM_RATE_LIMIT_MS = 500
 
+# Ratio validation constants
+MIN_VALID_RATIO = 100  # 1.00:1 (square)
+MAX_VALID_RATIO = 500  # 5.00:1 (very wide)
 
-def notify(msg, duration_ms=2000):
+
+def notify(msg, duration_ms=None):
+    """
+    Show notification with configurable duration.
+    
+    Args:
+        msg: Message to display
+        duration_ms: Duration in milliseconds (if None, uses setting)
+    """
+    if duration_ms is None:
+        # Get duration from settings (default: 2000ms)
+        try:
+            addon = xbmcaddon.Addon()
+            duration_ms = int(addon.getSetting("notification_duration") or "2000")
+        except Exception:
+            duration_ms = 2000
     xbmcgui.Dialog().notification("Remove Black Bars (GBM)", msg, None, duration_ms)
 
 
@@ -89,6 +107,10 @@ class KodiMetadataProvider:
                 cleaned = label.replace("AR", "").split(":")[0].strip()
                 try:
                     ratio = int((float(cleaned) + 0.005) * 100)
+                    # Validate ratio
+                    if ratio < MIN_VALID_RATIO or ratio > MAX_VALID_RATIO:
+                        xbmc.log(f"service.remove.black.bars.gbm: Invalid VideoAspect ratio: {ratio} from '{label}' (valid range: {MIN_VALID_RATIO}-{MAX_VALID_RATIO})", level=xbmc.LOGWARNING)
+                        return None
                     xbmc.log(f"service.remove.black.bars.gbm: Parsed VideoAspect: {ratio} from '{label}'", level=xbmc.LOGDEBUG)
                     return ratio
                 except ValueError as e:
@@ -143,7 +165,6 @@ class JsonCacheProvider:
             with open(self.path, "w", encoding="utf-8") as f:
                 json.dump(self._cache, f)
                 xbmc.log(f"service.remove.black.bars.gbm: Cache saved: {len(self._cache)} entries", level=xbmc.LOGDEBUG)
-                xbmc.log(f"service.remove.black.bars.gbm: Cache location: {self.path}", level=xbmc.LOGINFO)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Failed to save cache to {self.path}: {e}", level=xbmc.LOGWARNING)
 
@@ -171,14 +192,28 @@ class JsonCacheProvider:
         try:
             key = self._make_key(title, year, imdb_id)
             value = self._cache.get(key)
-            return int(value) if value is not None else None
+            if value is not None:
+                ratio = int(value)
+                # Validate cached ratio
+                if ratio < MIN_VALID_RATIO or ratio > MAX_VALID_RATIO:
+                    xbmc.log(f"service.remove.black.bars.gbm: Invalid cached ratio: {ratio} for key '{key}' (valid range: {MIN_VALID_RATIO}-{MAX_VALID_RATIO})", level=xbmc.LOGWARNING)
+                    return None
+                return ratio
+            return None
         except Exception:
             return None
 
     def store(self, title, year, ratio, imdb_id=None):
         try:
+            # Validate ratio before storing
+            if ratio is None:
+                return
+            ratio_int = int(ratio)
+            if ratio_int < MIN_VALID_RATIO or ratio_int > MAX_VALID_RATIO:
+                xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio to store: {ratio_int} (valid range: {MIN_VALID_RATIO}-{MAX_VALID_RATIO})", level=xbmc.LOGWARNING)
+                return
             key = self._make_key(title, year, imdb_id)
-            self._cache[key] = int(ratio)
+            self._cache[key] = ratio_int
             self._save()
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: Failed to store cache: " + str(e), level=xbmc.LOGWARNING)
@@ -191,7 +226,12 @@ class IMDbProvider:
             if isinstance(value, list):
                 value = value[0] if value else None
             if value:
-                return int(value)
+                ratio = int(value)
+                # Validate IMDb ratio
+                if ratio < MIN_VALID_RATIO or ratio > MAX_VALID_RATIO:
+                    xbmc.log(f"service.remove.black.bars.gbm: Invalid IMDb ratio: {ratio} for '{title}' (valid range: {MIN_VALID_RATIO}-{MAX_VALID_RATIO})", level=xbmc.LOGWARNING)
+                    return None
+                return ratio
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: IMDbProvider error: " + str(e), level=xbmc.LOGWARNING)
         return None
@@ -219,7 +259,52 @@ class ZoomApplier:
             xbmc.log(f"service.remove.black.bars.gbm: Fullscreen check error: {e}", level=xbmc.LOGDEBUG)
             return False
 
-    def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False, file_ratio=None):
+    def _validate_ratio(self, ratio, ratio_name="ratio"):
+        """
+        Validate that ratio is within acceptable range.
+        
+        Args:
+            ratio: Aspect ratio to validate
+            ratio_name: Name for logging (e.g., "detected_ratio", "file_ratio")
+        
+        Returns:
+            True if valid, False otherwise
+        """
+        if ratio is None:
+            return False
+        if not isinstance(ratio, (int, float)):
+            xbmc.log(f"service.remove.black.bars.gbm: Invalid {ratio_name} type: {type(ratio)}", level=xbmc.LOGWARNING)
+            return False
+        if ratio < MIN_VALID_RATIO or ratio > MAX_VALID_RATIO:
+            xbmc.log(f"service.remove.black.bars.gbm: Invalid {ratio_name} value: {ratio} (valid range: {MIN_VALID_RATIO}-{MAX_VALID_RATIO})", level=xbmc.LOGWARNING)
+            return False
+        return True
+
+    def _get_16_9_tolerance(self, player):
+        """
+        Get 16:9 tolerance range from settings.
+        
+        Args:
+            player: Service instance to access settings (can be None)
+        
+        Returns:
+            Tuple (min, max) tolerance values
+        """
+        try:
+            if player and hasattr(player, '_addon'):
+                min_val = int(player._addon.getSetting("tolerance_16_9_min") or "175")
+                max_val = int(player._addon.getSetting("tolerance_16_9_max") or "180")
+            else:
+                min_val = 175
+                max_val = 180
+            # Ensure min <= max
+            if min_val > max_val:
+                min_val, max_val = max_val, min_val
+            return (min_val, max_val)
+        except Exception:
+            return (175, 180)  # Default values
+
+    def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False, file_ratio=None, player=None):
         """
         Calculate zoom amount based on detected ratio.
         
@@ -228,11 +313,23 @@ class ZoomApplier:
             zoom_narrow_ratios: Whether to zoom narrow ratios (< 16:9)
             file_ratio: Optional file aspect ratio (may include encoded black bars)
                        If provided and different from detected_ratio, use it for zoom calculation
+            player: Service instance (optional, for accessing settings)
         """
-        # If file_ratio is available and close to 16:9 (177), no need to zoom
+        # Validate detected_ratio
+        if not self._validate_ratio(detected_ratio, "detected_ratio"):
+            return 1.0
+        
+        # Validate file_ratio if provided
+        if file_ratio is not None and not self._validate_ratio(file_ratio, "file_ratio"):
+            file_ratio = None
+        
+        # Get 16:9 tolerance from settings
+        tolerance_min, tolerance_max = self._get_16_9_tolerance(player)
+        
+        # If file_ratio is available and close to 16:9, no need to zoom
         # even if detected_ratio > 177 (file is already 16:9, content fits without black bars)
         # This check must come FIRST, before checking for encoded black bars
-        if file_ratio and 175 <= file_ratio <= 180:
+        if file_ratio and tolerance_min <= file_ratio <= tolerance_max:
             return 1.0
         
         # If file_ratio is provided and different from detected_ratio, we have encoded black bars
@@ -249,6 +346,16 @@ class ZoomApplier:
         return 1.0
 
     def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False, file_ratio=None, title=None):
+        """
+        Apply zoom to remove black bars.
+        
+        Args:
+            detected_ratio: The detected aspect ratio
+            player: Service instance (xbmc.Player) with _set_zoom method
+            zoom_narrow_ratios: Whether to zoom narrow ratios
+            file_ratio: Optional file aspect ratio for encoded black bars
+            title: Optional title for logging
+        """
         try:
             if self.last_applied_ratio == detected_ratio:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom skipped: already applied for ratio {detected_ratio}", level=xbmc.LOGDEBUG)
@@ -260,31 +367,17 @@ class ZoomApplier:
                 return False
             if not self._is_video_playing_fullscreen(player):
                 return False
-            zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios, file_ratio)
+            zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios, file_ratio, player)
             title_display = title or "video"
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount:.2f} on {title_display} to remove black bars", level=xbmc.LOGINFO)
             if file_ratio and file_ratio != detected_ratio:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file={file_ratio}, content={detected_ratio}, zoom={zoom_amount:.3f}", level=xbmc.LOGDEBUG)
             else:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: ratio={detected_ratio}, zoom={zoom_amount:.3f}", level=xbmc.LOGDEBUG)
-            json_cmd = json.dumps({
-                "jsonrpc": "2.0",
-                "method": "Player.SetViewMode",
-                "params": {
-                    "viewmode": {
-                        "zoom": zoom_amount
-                    }
-                },
-                "id": 1
-            })
-            result = xbmc.executeJSONRPC(json_cmd)
-            if result:
-                try:
-                    result_json = json.loads(result)
-                    if "error" in result_json:
-                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error: {result_json.get('error', {})}", level=xbmc.LOGWARNING)
-                except Exception:
-                    pass
+            
+            # Set zoom via player's _set_zoom method
+            if not player._set_zoom(zoom_amount):
+                xbmc.log("service.remove.black.bars.gbm: Failed to set zoom", level=xbmc.LOGWARNING)
             self.last_zoom_time_ms = now_ms
             self.last_applied_ratio = detected_ratio
             if zoom_amount > 1.0:
@@ -313,6 +406,41 @@ class Service(xbmc.Player):
                 self.show_original()
             else:
                 self.on_av_started()
+
+    def _set_zoom(self, zoom_amount):
+        """
+        Set zoom level via JSON-RPC Player.SetViewMode.
+        
+        Args:
+            zoom_amount: Zoom level (1.0 = no zoom, >1.0 = zoom in)
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            json_cmd = json.dumps({
+                "jsonrpc": "2.0",
+                "method": "Player.SetViewMode",
+                "params": {
+                    "viewmode": {
+                        "zoom": zoom_amount
+                    }
+                },
+                "id": 1
+            })
+            result = xbmc.executeJSONRPC(json_cmd)
+            if result:
+                try:
+                    result_json = json.loads(result)
+                    if "error" in result_json:
+                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error: {result_json.get('error', {})}", level=xbmc.LOGWARNING)
+                        return False
+                except Exception:
+                    pass
+            return True
+        except Exception as e:
+            xbmc.log(f"service.remove.black.bars.gbm: _set_zoom error: {e}", level=xbmc.LOGERROR)
+            return False
 
     def _read_settings(self):
         """Read addon settings."""
@@ -493,17 +621,7 @@ class Service(xbmc.Player):
     def show_original(self):
         try:
             xbmcgui.Window(10000).setProperty("removeblackbars_status", "off")
-            json_cmd = json.dumps({
-                "jsonrpc": "2.0",
-                "method": "Player.SetViewMode",
-                "params": {
-                    "viewmode": {
-                        "zoom": 1.0
-                    }
-                },
-                "id": 1
-            })
-            xbmc.executeJSONRPC(json_cmd)
+            self._set_zoom(1.0)
             notify("Original view")
         except Exception as e:
             xbmc.log("service.remove.black.bars.gbm: show_original error: " + str(e), level=xbmc.LOGERROR)

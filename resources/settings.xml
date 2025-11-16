@@ -6,4 +6,9 @@
         <setting id="zoom_narrow_ratios" type="bool" label="Zoom narrow ratios (4:3, etc.)" default="false"/>
         <setting id="clear_cache" type="action" label="Clear IMDb cache" action="RunAddon(service.remove.black.bars.gbm,clear_cache)"/>
     </category>
+    <category label="Advanced">
+        <setting id="tolerance_16_9_min" type="number" label="16:9 proximity tolerance (min)" default="175" option="int" range="100,200"/>
+        <setting id="tolerance_16_9_max" type="number" label="16:9 proximity tolerance (max)" default="180" option="int" range="100,200"/>
+        <setting id="notification_duration" type="number" label="Notification duration (ms)" default="2000" option="int" range="1000,5000"/>
+    </category>
 </settings>

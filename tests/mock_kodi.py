@@ -58,6 +58,10 @@ class MockPlayer:
     
     def isPlaying(self):
         return self._is_playing
+    
+    def _set_zoom(self, zoom_amount):
+        """Mock pour _set_zoom method"""
+        return True
 
 
 class MockAddon:
