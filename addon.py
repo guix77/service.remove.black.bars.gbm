@@ -337,12 +337,27 @@ class ZoomApplier:
             return 1.0
         
         # If file_ratio is provided and different from detected_ratio, use it for zoom calculation
-        # This handles both encoded black bars and cases where file format differs from content
-        # We need to combine:
-        # 1. Zoom to remove encoded black bars (file_ratio -> detected_ratio)
-        # 2. Zoom to remove display black bars (detected_ratio -> 177 for wide ratios)
         if file_ratio and file_ratio != detected_ratio:
-            # Calculate zoom to remove encoded black bars
+            # Check if neither file nor content is close to 16:9
+            # In this case, use file_ratio directly (file/177 or 177/file) instead of combined zoom
+            file_is_16_9 = tolerance_min <= file_ratio <= tolerance_max
+            content_is_16_9 = tolerance_min <= detected_ratio <= tolerance_max
+            
+            if not file_is_16_9 and not content_is_16_9:
+                # Neither close to 16:9: use file_ratio directly as reference
+                if file_ratio > 177:
+                    direct_zoom = file_ratio / 177.0
+                    xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio directly (wide): file_ratio={file_ratio}, zoom={direct_zoom:.4f}", level=xbmc.LOGDEBUG)
+                else:
+                    direct_zoom = 177.0 / file_ratio
+                    xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio directly (narrow): file_ratio={file_ratio}, zoom={direct_zoom:.4f}", level=xbmc.LOGDEBUG)
+                return direct_zoom
+            
+            # Otherwise, calculate combined zoom (encoded bars + display bars)
+            # This handles both encoded black bars and cases where file format differs from content
+            # We need to combine:
+            # 1. Zoom to remove encoded black bars (file_ratio -> detected_ratio)
+            # 2. Zoom to remove display black bars (detected_ratio -> 177 for wide ratios)
             if file_ratio > detected_ratio:
                 # File is wider than content: horizontal encoded bars, need to zoom in (file_ratio / detected_ratio)
                 encoded_zoom = file_ratio / float(detected_ratio)
@@ -350,7 +365,7 @@ class ZoomApplier:
                 # File is narrower than content: vertical encoded bars, need to zoom in (detected_ratio / file_ratio)
                 encoded_zoom = detected_ratio / float(file_ratio)
             
-            xbmc.log(f"service.remove.black.bars.gbm: File ratio differs from detected: file={file_ratio}, content={detected_ratio}, encoded_zoom={encoded_zoom:.4f}", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: File ratio differs: file_ratio={file_ratio}, detected_ratio={detected_ratio}, encoded_zoom={encoded_zoom:.4f}", level=xbmc.LOGDEBUG)
             
             # Check if we need additional zoom for display black bars
             # Only if detected_ratio is NOT within 16:9 tolerance
@@ -362,12 +377,18 @@ class ZoomApplier:
                 # Content is wider than 16:9, need additional zoom for display bars
                 display_zoom = detected_ratio / 177.0
                 total_zoom = encoded_zoom * display_zoom
+                if total_zoom < 1.0:
+                    xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
+                    return 1.0
                 xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
                 return total_zoom
             elif zoom_narrow_ratios and detected_ratio < tolerance_min:
                 # Content is narrower than 16:9, and zoom_narrow_ratios is enabled
                 display_zoom = 177.0 / detected_ratio
                 total_zoom = encoded_zoom * display_zoom
+                if total_zoom < 1.0:
+                    xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
+                    return 1.0
                 xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
                 return total_zoom
             else:
@@ -385,11 +406,11 @@ class ZoomApplier:
         # Calculate zoom for display black bars only
         if detected_ratio > 177:
             display_zoom = detected_ratio / 177.0
-            xbmc.log(f"service.remove.black.bars.gbm: Display bars only (wide): detected={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: Display bars only (wide): detected_ratio={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
             return display_zoom
         elif zoom_narrow_ratios and detected_ratio < 177:
             display_zoom = 177.0 / detected_ratio
-            xbmc.log(f"service.remove.black.bars.gbm: Display bars only (narrow): detected={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: Display bars only (narrow): detected_ratio={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
             return display_zoom
         xbmc.log(f"service.remove.black.bars.gbm: No zoom needed: detected_ratio={detected_ratio} (no bars to remove)", level=xbmc.LOGDEBUG)
         return 1.0
@@ -420,9 +441,9 @@ class ZoomApplier:
             title_display = title or "video"
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount:.2f} on {title_display} to remove black bars", level=xbmc.LOGINFO)
             if file_ratio and file_ratio != detected_ratio:
-                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file={file_ratio}, content={detected_ratio}, zoom={zoom_amount:.3f}", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file_ratio={file_ratio}, detected_ratio={detected_ratio}, zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
             else:
-                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: ratio={detected_ratio}, zoom={zoom_amount:.3f}", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: detected_ratio={detected_ratio}, zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
             
             # Set zoom via player's _set_zoom method
             if not player._set_zoom(zoom_amount):
@@ -575,7 +596,7 @@ class Service(xbmc.Player):
                 title_display = f"{title_display} ({year})"
             
             xbmc.log(f"service.remove.black.bars.gbm: Detecting black bars for {title_display}", level=xbmc.LOGINFO)
-            xbmc.log(f"service.remove.black.bars.gbm: Detection params: title='{title}', year={year}, imdb={imdb_number}", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: Detection: title='{title}', year={year}, imdb_id={imdb_number}", level=xbmc.LOGDEBUG)
 
             # 1) IMDb (first priority, cache only IMDb results)
             imdb_enabled, _ = self._read_settings()
@@ -587,13 +608,12 @@ class Service(xbmc.Player):
                 # Try cache first (use IMDb number if available for more precise cache key)
                 imdb_ratio = self.cache.get(title, year, imdb_id=imdb_number)
                 if imdb_ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: IMDb cache hit: ratio={imdb_ratio}", level=xbmc.LOGDEBUG)
+                    xbmc.log(f"service.remove.black.bars.gbm: IMDb cache hit: imdb_ratio={imdb_ratio}", level=xbmc.LOGDEBUG)
                 else:
-                    # Try IMDb provider (use IMDb number if available for direct access)
-                    xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, querying IMDb API", level=xbmc.LOGDEBUG)
+                    xbmc.log("service.remove.black.bars.gbm: IMDb cache miss, querying API", level=xbmc.LOGDEBUG)
                     imdb_ratio = self.imdb.get_aspect_ratio(title, imdb_number=imdb_number)
                     if imdb_ratio:
-                        xbmc.log(f"service.remove.black.bars.gbm: IMDb API result: ratio={imdb_ratio}", level=xbmc.LOGDEBUG)
+                        xbmc.log(f"service.remove.black.bars.gbm: IMDb API result: imdb_ratio={imdb_ratio}", level=xbmc.LOGDEBUG)
                         self.cache.store(title, year, imdb_ratio, imdb_id=imdb_number)
                     else:
                         xbmc.log("service.remove.black.bars.gbm: IMDb API: no ratio found", level=xbmc.LOGDEBUG)
@@ -607,36 +627,40 @@ class Service(xbmc.Player):
                         difference = abs(file_ratio_temp - imdb_ratio)
                         threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
                         
-                        # Use file_ratio if difference is significant (> threshold) AND
-                        # (file_ratio is close to 16:9 OR content is close to 16:9)
-                        # This handles:
-                        # - Encoded black bars: file_ratio ~16:9, content not 16:9
-                        # - Cases like Invasion: content ~16:9, file different (no encoded bars but need file_ratio)
-                        # But NOT cases like Basil/Le Baron Rouge: neither close to 16:9 (encoding/container issue)
+                        # Use file_ratio if:
+                        # 1. Difference is significant (> threshold) AND (file_ratio is close to 16:9 OR content is close to 16:9)
+                        #    → Encoded black bars or cases like Invasion
+                        # 2. Difference exists (> 0) AND neither file nor content is close to 16:9
+                        #    → Cases like Basil/Le Baron Rouge/The Artist where file_ratio should be used directly
                         tolerance_min, tolerance_max = self.zoom._get_16_9_tolerance(self)
                         file_is_16_9 = tolerance_min <= file_ratio_temp <= tolerance_max
                         content_is_16_9 = tolerance_min <= imdb_ratio <= tolerance_max
                         
                         if difference > threshold and (file_is_16_9 or content_is_16_9):
+                            # Case 1: Encoded black bars or content/file close to 16:9
                             file_ratio = file_ratio_temp
                             if file_is_16_9 and not content_is_16_9:
-                                xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected: IMDb={imdb_ratio}, file={file_ratio}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected: imdb_ratio={imdb_ratio}, file_ratio={file_ratio}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
                             else:
-                                xbmc.log(f"service.remove.black.bars.gbm: File ratio differs from IMDb: IMDb={imdb_ratio}, file={file_ratio}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: File ratio differs: imdb_ratio={imdb_ratio}, file_ratio={file_ratio}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
+                        elif difference > 0 and not file_is_16_9 and not content_is_16_9:
+                            # Case 2: Neither close to 16:9, use file_ratio directly for zoom calculation
+                            file_ratio = file_ratio_temp
+                            xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio directly: imdb_ratio={imdb_ratio}, file_ratio={file_ratio}, diff={difference}", level=xbmc.LOGDEBUG)
                         else:
                             # Don't use file_ratio if conditions not met
                             file_ratio = None
                             if difference > threshold:
-                                xbmc.log(f"service.remove.black.bars.gbm: Difference detected but neither file ({file_ratio_temp}) nor content ({imdb_ratio}) close to 16:9 - likely encoding/container issue, not encoded bars. Using IMDb ratio only.", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: Difference detected but conditions not met: imdb_ratio={imdb_ratio}, file_ratio={file_ratio_temp}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
                             else:
-                                xbmc.log(f"service.remove.black.bars.gbm: No significant difference: IMDb={imdb_ratio}, file={file_ratio_temp}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: No significant difference: imdb_ratio={imdb_ratio}, file_ratio={file_ratio_temp}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
 
             # 2) Kodi metadata (fallback if IMDb unavailable or not found)
             if not imdb_ratio:
                 xbmc.log("service.remove.black.bars.gbm: IMDb unavailable, using Kodi metadata fallback", level=xbmc.LOGDEBUG)
                 file_ratio = self.kodi.get_aspect_ratio(video_info_tag, reason="for ratio detection")
                 if file_ratio:
-                    xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: ratio={file_ratio}", level=xbmc.LOGDEBUG)
+                    xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: file_ratio={file_ratio}", level=xbmc.LOGDEBUG)
 
             # Return tuple (detected_ratio, file_ratio, title_display)
             # detected_ratio is IMDb ratio if available, otherwise file_ratio
@@ -644,7 +668,35 @@ class Service(xbmc.Player):
             detected_ratio = imdb_ratio if imdb_ratio else file_ratio
             if detected_ratio:
                 source = "IMDb" if imdb_ratio else "Kodi metadata"
-                xbmc.log(f"service.remove.black.bars.gbm: Detection complete: ratio={detected_ratio} from {source}", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Detection complete: detected_ratio={detected_ratio} from {source}", level=xbmc.LOGDEBUG)
+                
+                # Log JSONL line for CASES.jsonl (INFO level so it's always visible)
+                try:
+                    # Determine media type
+                    media_type = video_info_tag.getMediaType() if video_info_tag else None
+                    if media_type == "episode":
+                        case_type = "series"
+                    elif media_type == "movie":
+                        case_type = "movie"
+                    else:
+                        case_type = "movie"  # Default fallback
+                    
+                    # Build JSONL case entry (without ideal_zoom, to be filled manually)
+                    case_data = {
+                        "title": title,
+                        "year": year,
+                        "type": case_type,
+                        "imdb_id": imdb_number,
+                        "imdb_ratio": imdb_ratio,
+                        "file_ratio": file_ratio,
+                        "ideal_zoom": None  # To be filled manually
+                    }
+                    # Format compact JSON (no spaces) to match CASES.jsonl format
+                    jsonl_line = json.dumps(case_data, ensure_ascii=False, separators=(',', ':'))
+                    xbmc.log(f"service.remove.black.bars.gbm: CASES.jsonl entry (copy-paste ready, fill ideal_zoom manually): {jsonl_line}", level=xbmc.LOGINFO)
+                except Exception as e:
+                    xbmc.log(f"service.remove.black.bars.gbm: Error formatting JSONL case entry: {e}", level=xbmc.LOGDEBUG)
+                
                 return (detected_ratio, file_ratio, title_display)
 
             xbmc.log("service.remove.black.bars.gbm: Detection failed: no aspect ratio found", level=xbmc.LOGDEBUG)

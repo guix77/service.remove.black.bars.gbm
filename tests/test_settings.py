@@ -67,12 +67,11 @@ def test_calculate_zoom_uses_settings_tolerance(zoom, mock_player_with_settings)
     expected = encoded_zoom * display_zoom
     assert abs(zoom_value - expected) < 0.01
     
-    # File ratio 190 should be outside tolerance
+    # File ratio 190 should be outside tolerance (170-185)
+    # Neither file (190) nor content (235) close to 16:9 → use file_ratio directly
     zoom_value = zoom._calculate_zoom(235, file_ratio=190, player=mock_player_with_settings)
-    # Combined zoom: encoded (235/190) * display (235/177)
-    encoded_zoom = 235 / 190.0
-    display_zoom = 235 / 177.0
-    expected = encoded_zoom * display_zoom
+    # file_ratio (190) > 177: direct_zoom = 190 / 177
+    expected = 190.0 / 177.0
     assert abs(zoom_value - expected) < 0.01
 
 

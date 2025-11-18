@@ -72,18 +72,16 @@ def test_calculate_zoom_file_ratio_at_tolerance_boundary(zoom):
     expected = encoded_zoom * display_zoom
     assert abs(zoom_value - expected) < 0.01
     
-    # Just below min (174)
+    # Just below min (174) - neither close to 16:9, use file_ratio directly
     zoom_value = zoom._calculate_zoom(235, file_ratio=174)
-    encoded_zoom = 235 / 174.0
-    display_zoom = 235 / 177.0
-    expected = encoded_zoom * display_zoom  # Combined zoom
+    # file_ratio (174) < 177: direct_zoom = 177 / 174
+    expected = 177.0 / 174
     assert abs(zoom_value - expected) < 0.01
     
-    # Just above max (181)
+    # Just above max (181) - neither close to 16:9, use file_ratio directly
     zoom_value = zoom._calculate_zoom(235, file_ratio=181)
-    encoded_zoom = 235 / 181.0
-    display_zoom = 235 / 177.0
-    expected = encoded_zoom * display_zoom  # Combined zoom
+    # file_ratio (181) > 177: direct_zoom = 181 / 177
+    expected = 181.0 / 177.0
     assert abs(zoom_value - expected) < 0.01
 
 
@@ -122,14 +120,12 @@ def test_calculate_zoom_file_ratio_narrower_than_detected(zoom):
     """Test zoom when file ratio is narrower than detected (vertical encoded bars)
     
     Example: file=166, content=185
-    - Encoded zoom: 185/166 = 1.114 (to remove vertical encoded bars)
-    - Display zoom: 185/177 = 1.045 (to remove display bars)
-    - Total zoom: 1.114 * 1.045 = 1.165
+    - Neither file (166) nor content (185) close to 16:9
+    - Use file_ratio directly: 177 / 166 = 1.066 (to adapt file to 16:9)
     """
     zoom_value = zoom._calculate_zoom(185, file_ratio=166)
-    encoded_zoom = 185 / 166.0
-    display_zoom = 185 / 177.0
-    expected = encoded_zoom * display_zoom  # Combined zoom
+    # file_ratio (166) < 177: direct_zoom = 177 / 166
+    expected = 177.0 / 166
     assert abs(zoom_value - expected) < 0.01
     assert zoom_value > 1.0, "Zoom should be greater than 1.0 to remove vertical encoded bars"
 

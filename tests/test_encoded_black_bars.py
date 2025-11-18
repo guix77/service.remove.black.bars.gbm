@@ -130,9 +130,10 @@ def test_detect_encoded_black_bars():
 
 def test_no_encoded_black_bars_similar_ratios():
     """Test pas de barres encodées : ratios similaires (IMDb 235, fichier 237)
-    - Différence: 2 < threshold (11) → file_ratio n'est pas utilisé
+    - Différence: 2 < threshold (11) MAIS ni file ni content proches de 16:9
+    - Avec la nouvelle logique : file_ratio EST utilisé (différence > 0 ET ni file ni content proches 16:9)
     """
-    # Mocker : IMDb ratio 235, File ratio 237 (différence < seuil)
+    # Mocker : IMDb ratio 235, File ratio 237 (différence < seuil mais ni proche 16:9)
     mock_getInfoLabel(237)
     mock_executeJSONRPC("tt1234567")
     
@@ -151,8 +152,8 @@ def test_no_encoded_black_bars_similar_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
-    # file_ratio is NOT returned if difference < threshold
-    assert file_ratio is None, "file_ratio should be None when difference < threshold"
+    # file_ratio EST utilisé car différence > 0 ET ni file ni content proches de 16:9
+    assert file_ratio == 237, "file_ratio should be used when difference > 0 and neither close to 16:9"
 
 
 def test_no_encoded_black_bars_identical_ratios():
@@ -274,11 +275,11 @@ def test_vertical_encoded_bars_narrower_file():
 
 
 def test_no_encoded_bars_if_file_not_16_9():
-    """Test que file_ratio n'est PAS utilisé si ni file ni content ne sont proches de 16:9
+    """Test que file_ratio EST utilisé directement si ni file ni content ne sont proches de 16:9
     - File ratio: 166 (1.66:1, pas proche de 16:9)
     - IMDb ratio: 185 (1.85:1, pas proche de 16:9)
-    - Différence: 19 > threshold (9) MAIS ni file ni content proche de 16:9
-    - file_ratio n'est PAS utilisé (cas Basil/Le Baron Rouge)
+    - Différence: 19 > threshold (9) ET ni file ni content proche de 16:9
+    - file_ratio EST utilisé directement (cas Basil/Le Baron Rouge)
     """
     # Mocker : IMDb ratio 185, File ratio 166 (ni l'un ni l'autre proche de 16:9)
     mock_getInfoLabel(166)
@@ -305,13 +306,13 @@ def test_no_encoded_bars_if_file_not_16_9():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 185, "Should detect IMDb ratio 185"
-    # file_ratio n'est PAS utilisé car ni file ni content proche de 16:9
-    assert file_ratio is None, "Should NOT use file_ratio (neither close to 16:9)"
+    # file_ratio EST utilisé car ni file ni content proche de 16:9 (nouvelle logique)
+    assert file_ratio == 166, "Should use file_ratio (neither close to 16:9, use file_ratio directly)"
     
-    # Vérifier le calcul du zoom (sans file_ratio, zoom normal pour barres affichage)
+    # Vérifier le calcul du zoom (avec file_ratio, zoom direct file_ratio -> 16:9)
     from addon import ZoomApplier
     zoom = ZoomApplier()
-    zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=None)
-    # Content (185) > 177: display_zoom = 185 / 177 = 1.045
-    expected = 185 / 177.0
+    zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
+    # file_ratio (166) < 177: direct_zoom = 177 / 166 = 1.066
+    expected = 177.0 / 166
     assert abs(zoom_value - expected) < 0.01, f"Zoom should be {expected:.3f}, got {zoom_value:.3f}"
