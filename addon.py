@@ -532,7 +532,10 @@ class Service(xbmc.Player):
         except Exception:
             zoom_narrow_ratios = False
         try:
-            zoom_offset = float(self._addon.getSetting("zoom_offset"))
+            # zoom_offset is stored as integer 0-10 (representing 0.00 to 0.10)
+            # Convert to float: divide by 100
+            zoom_offset_int = int(self._addon.getSetting("zoom_offset") or "1")
+            zoom_offset = zoom_offset_int / 100.0
         except Exception:
             zoom_offset = 0.01  # Default value
         return imdb_enabled, zoom_narrow_ratios, zoom_offset
