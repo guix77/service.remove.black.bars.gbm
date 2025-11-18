@@ -56,12 +56,23 @@ def test_get_16_9_tolerance_default(zoom):
 def test_calculate_zoom_uses_settings_tolerance(zoom, mock_player_with_settings):
     """Test that zoom calculation uses settings tolerance"""
     # File ratio 170 should be within tolerance (170-185)
+    # If same as detected_ratio, no zoom
+    zoom_value = zoom._calculate_zoom(170, file_ratio=170, player=mock_player_with_settings)
+    assert zoom_value == 1.0  # No zoom, within tolerance and same ratio
+    
+    # File ratio 170 but different from detected_ratio - calculate encoded bars zoom
     zoom_value = zoom._calculate_zoom(235, file_ratio=170, player=mock_player_with_settings)
-    assert zoom_value == 1.0  # No zoom, within tolerance
+    encoded_zoom = 235 / 170.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom
+    assert abs(zoom_value - expected) < 0.01
     
     # File ratio 190 should be outside tolerance
     zoom_value = zoom._calculate_zoom(235, file_ratio=190, player=mock_player_with_settings)
-    expected = 190 / 235.0
+    # Combined zoom: encoded (235/190) * display (235/177)
+    encoded_zoom = 235 / 190.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom
     assert abs(zoom_value - expected) < 0.01
 
 

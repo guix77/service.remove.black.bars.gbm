@@ -149,8 +149,8 @@ def test_no_encoded_black_bars_similar_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
-    # file_ratio is now always returned if available (for zoom calculation)
-    assert file_ratio == 237
+    # file_ratio is NOT returned if not close to 16:9 (not encoded bars)
+    assert file_ratio is None
     
     # Vérifier qu'aucun log de détection n'a été créé
     import xbmc
@@ -180,8 +180,8 @@ def test_no_encoded_black_bars_identical_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
-    # file_ratio is now always returned if available (for zoom calculation)
-    assert file_ratio == 235
+    # file_ratio is NOT returned if identical to detected_ratio (no encoded bars)
+    assert file_ratio is None
     
     # Vérifier qu'aucun log de détection n'a été créé
     import xbmc
@@ -225,3 +225,101 @@ def test_fallback_to_file_ratio_when_no_imdb():
     assert detected_ratio == 178
     # When IMDb is disabled, file_ratio is used as detected_ratio
     assert file_ratio == 178
+
+
+def test_vertical_encoded_bars_narrower_file():
+    """Test barres encodées verticales : file_ratio < detected_ratio ET file_ratio proche de 16:9
+    - File ratio: 175 (16:9 avec barres encodées verticales)
+    - IMDb ratio: 185 (1.85:1 contenu réel)
+    - Différence: 10 > threshold (9) ✓
+    - Zoom attendu: (185/175) * (185/177) pour enlever barres encodées + affichage
+    """
+    from addon import ZoomApplier
+    
+    # Mocker : IMDb ratio 185, File ratio 175 (proche de 16:9, diff=10 > threshold=9)
+    mock_getInfoLabel(175)
+    mock_executeJSONRPC("tt1234567")
+    
+    service = Service()
+    video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
+    
+    # Désactiver le cache
+    service.cache._cache = {}
+    service.cache.get = lambda *args, **kwargs: None
+    
+    # Mocker IMDb
+    service.imdb.get_aspect_ratio = lambda title, imdb_number=None: 185
+    
+    # Mocker isPlayingVideo
+    service.isPlayingVideo = lambda: True
+    service.getVideoInfoTag = lambda: video_tag
+    
+    # Détecter le ratio
+    result = service._detect_aspect_ratio()
+    
+    # Vérifier la détection
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 185, "Should detect IMDb ratio 185"
+    assert file_ratio == 175, "Should detect file ratio 175 (close to 16:9)"
+    
+    # Vérifier qu'un log de détection a été créé
+    import xbmc
+    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
+    assert len(log_messages) > 0, "Should log encoded black bars detection"
+    
+    # Vérifier le calcul du zoom
+    zoom = ZoomApplier()
+    zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
+    # Combined zoom: encoded (185/175) * display (185/177)
+    encoded_zoom = 185 / 175.0
+    display_zoom = 185 / 177.0
+    expected = encoded_zoom * display_zoom
+    assert abs(zoom_value - expected) < 0.01, f"Zoom should be {expected:.3f}, got {zoom_value:.3f}"
+    assert zoom_value > 1.0, "Zoom should be greater than 1.0 to remove vertical encoded bars"
+
+
+def test_no_encoded_bars_if_file_not_16_9():
+    """Test que les barres encodées ne sont PAS détectées si file_ratio n'est pas proche de 16:9
+    - File ratio: 166 (1.66:1, pas proche de 16:9)
+    - IMDb ratio: 185 (1.85:1)
+    - Ne doit PAS détecter de barres encodées (différence due à encodage/container, pas barres)
+    """
+    # Mocker : IMDb ratio 185, File ratio 166 (pas proche de 16:9)
+    mock_getInfoLabel(166)
+    mock_executeJSONRPC("tt1234567")
+    
+    service = Service()
+    video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
+    
+    # Désactiver le cache
+    service.cache._cache = {}
+    service.cache.get = lambda *args, **kwargs: None
+    
+    # Mocker IMDb
+    service.imdb.get_aspect_ratio = lambda title, imdb_number=None: 185
+    
+    # Mocker isPlayingVideo
+    service.isPlayingVideo = lambda: True
+    service.getVideoInfoTag = lambda: video_tag
+    
+    # Détecter le ratio
+    result = service._detect_aspect_ratio()
+    
+    # Vérifier la détection
+    assert result is not None
+    detected_ratio, file_ratio, title_display = result
+    assert detected_ratio == 185, "Should detect IMDb ratio 185"
+    assert file_ratio is None, "Should NOT use file_ratio (not close to 16:9, not encoded bars)"
+    
+    # Vérifier qu'aucun log de détection n'a été créé
+    import xbmc
+    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
+    assert len(log_messages) == 0, "Should NOT log encoded black bars (file not close to 16:9)"
+    
+    # Vérifier le calcul du zoom (normal, sans barres encodées)
+    from addon import ZoomApplier
+    zoom = ZoomApplier()
+    zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=None)
+    expected = 185 / 177.0  # Normal zoom for display bars only
+    assert abs(zoom_value - expected) < 0.01, f"Zoom should be {expected:.3f}, got {zoom_value:.3f}"

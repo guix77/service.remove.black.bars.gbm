@@ -100,7 +100,7 @@ When IMDb ratio is available:
 - **Wide ratios (>16:9)**: Zoom = detected_ratio / 177
 - **Narrow ratios (<16:9)**: Zoom = 177 / detected_ratio (if enabled)
 - **16:9 proximity**: No zoom if file ratio is within tolerance range (175-180)
-- **Encoded black bars**: Zoom = file_ratio / detected_ratio
+- **Encoded black bars**: Zoom = detected_ratio / file_ratio
 
 ### Cache Management
 
@@ -117,10 +117,10 @@ When IMDb ratio is available:
 
 ### Example 2: Movie with Encoded Black Bars
 
-- **IMDb ratio**: 235 (2.35:1 content)
-- **File ratio**: 177 (16:9 file with encoded black bars)
-- **Zoom applied**: 177 / 235 = 0.75x (no zoom, file is already 16:9)
-- **Result**: No zoom needed, file already fits screen
+- **IMDb ratio**: 185 (1.85:1 content)
+- **File ratio**: 166 (1.66:1 file with encoded black bars)
+- **Zoom applied**: 185 / 166 = 1.11x
+- **Result**: Black bars removed, content fills screen
 
 ### Example 3: 16:9 File with Wide Content
 
