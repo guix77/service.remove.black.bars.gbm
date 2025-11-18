@@ -33,45 +33,105 @@ def mock_player():
 
 
 def test_calculate_zoom_file_ratio_exactly_16_9(zoom):
-    """Test zoom when file ratio is exactly 16:9 (177)"""
-    zoom_value = zoom._calculate_zoom(235, file_ratio=177)
+    """Test zoom when file ratio is exactly 16:9 (177) and same as detected_ratio"""
+    # If file_ratio == detected_ratio and both are 16:9, no zoom needed
+    zoom_value = zoom._calculate_zoom(177, file_ratio=177)
     assert zoom_value == 1.0  # No zoom needed
+    
+    # If file_ratio is 16:9 but detected_ratio is different, calculate encoded bars zoom
+    zoom_value = zoom._calculate_zoom(235, file_ratio=177)
+    # This shouldn't happen in practice (file_ratio only passed if encoded bars detected)
+    # But if it does, we calculate zoom for encoded bars
+    encoded_zoom = 235 / 177.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom
+    assert abs(zoom_value - expected) < 0.01
 
 
 def test_calculate_zoom_file_ratio_at_tolerance_boundary(zoom):
     """Test zoom at tolerance boundaries"""
-    # At min boundary (175)
-    zoom_value = zoom._calculate_zoom(235, file_ratio=175)
+    # At min boundary (175) - if same as detected_ratio, no zoom
+    zoom_value = zoom._calculate_zoom(175, file_ratio=175)
     assert zoom_value == 1.0
     
-    # At max boundary (180)
-    zoom_value = zoom._calculate_zoom(235, file_ratio=180)
+    # At max boundary (180) - if same as detected_ratio, no zoom
+    zoom_value = zoom._calculate_zoom(180, file_ratio=180)
     assert zoom_value == 1.0
+    
+    # At min boundary (175) but different from detected_ratio - calculate encoded bars zoom
+    zoom_value = zoom._calculate_zoom(235, file_ratio=175)
+    encoded_zoom = 235 / 175.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom
+    assert abs(zoom_value - expected) < 0.01
+    
+    # At max boundary (180) but different from detected_ratio - calculate encoded bars zoom
+    zoom_value = zoom._calculate_zoom(235, file_ratio=180)
+    encoded_zoom = 235 / 180.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom
+    assert abs(zoom_value - expected) < 0.01
     
     # Just below min (174)
     zoom_value = zoom._calculate_zoom(235, file_ratio=174)
-    expected = 174 / 235.0
+    encoded_zoom = 235 / 174.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom  # Combined zoom
     assert abs(zoom_value - expected) < 0.01
     
     # Just above max (181)
     zoom_value = zoom._calculate_zoom(235, file_ratio=181)
-    expected = 181 / 235.0
+    encoded_zoom = 235 / 181.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom  # Combined zoom
     assert abs(zoom_value - expected) < 0.01
 
 
 def test_calculate_zoom_identical_ratios(zoom):
-    """Test zoom when detected and file ratios are identical"""
+    """Test zoom when detected and file ratios are identical
+    - If within 16:9 tolerance: no zoom (no bars at all)
+    - If outside 16:9 tolerance: zoom for display bars only (no encoded bars, but display bars exist)
+    """
+    # Identical ratios within 16:9 tolerance → no zoom
+    zoom_value = zoom._calculate_zoom(177, file_ratio=177)
+    assert zoom_value == 1.0, "Identical ratios within 16:9 tolerance should return 1.0"
+    
+    # Identical ratios outside 16:9 tolerance → zoom for display bars
     zoom_value = zoom._calculate_zoom(235, file_ratio=235)
     expected = 235 / 177.0
-    assert abs(zoom_value - expected) < 0.01
+    assert abs(zoom_value - expected) < 0.01, f"Identical ratios outside 16:9 tolerance should zoom for display bars: expected {expected:.3f}, got {zoom_value:.3f}"
 
 
 def test_calculate_zoom_file_ratio_wider_than_detected(zoom):
-    """Test zoom when file ratio is wider than detected (unusual case)"""
-    # This shouldn't happen in practice, but test the logic
+    """Test zoom when file ratio is wider than detected (horizontal encoded bars)
+    
+    Example: file=240, content=235
+    - Encoded zoom: 240/235 = 1.021 (to remove horizontal encoded bars)
+    - Display zoom: 235/177 = 1.328 (to remove display bars)
+    - Total zoom: 1.021 * 1.328 = 1.356
+    """
     zoom_value = zoom._calculate_zoom(235, file_ratio=240)
-    expected = 240 / 235.0
+    encoded_zoom = 240 / 235.0
+    display_zoom = 235 / 177.0
+    expected = encoded_zoom * display_zoom  # Combined zoom
     assert abs(zoom_value - expected) < 0.01
+    assert zoom_value > 1.0, "Zoom should be > 1.0 to remove bars"
+
+
+def test_calculate_zoom_file_ratio_narrower_than_detected(zoom):
+    """Test zoom when file ratio is narrower than detected (vertical encoded bars)
+    
+    Example: file=166, content=185
+    - Encoded zoom: 185/166 = 1.114 (to remove vertical encoded bars)
+    - Display zoom: 185/177 = 1.045 (to remove display bars)
+    - Total zoom: 1.114 * 1.045 = 1.165
+    """
+    zoom_value = zoom._calculate_zoom(185, file_ratio=166)
+    encoded_zoom = 185 / 166.0
+    display_zoom = 185 / 177.0
+    expected = encoded_zoom * display_zoom  # Combined zoom
+    assert abs(zoom_value - expected) < 0.01
+    assert zoom_value > 1.0, "Zoom should be greater than 1.0 to remove vertical encoded bars"
 
 
 def test_cache_store_invalid_ratio():
