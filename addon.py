@@ -415,7 +415,7 @@ class ZoomApplier:
         xbmc.log(f"service.remove.black.bars.gbm: No zoom needed: detected_ratio={detected_ratio} (no bars to remove)", level=xbmc.LOGDEBUG)
         return 1.0
 
-    def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False, file_ratio=None, title=None):
+    def apply_zoom(self, detected_ratio, player, zoom_narrow_ratios=False, file_ratio=None, title=None, zoom_offset=0.0):
         """
         Apply zoom to remove black bars.
         
@@ -425,6 +425,7 @@ class ZoomApplier:
             zoom_narrow_ratios: Whether to zoom narrow ratios
             file_ratio: Optional file aspect ratio for encoded black bars
             title: Optional title for logging
+            zoom_offset: Offset to add to calculated zoom (default 0.0)
         """
         try:
             if self.last_applied_ratio == detected_ratio:
@@ -438,6 +439,10 @@ class ZoomApplier:
             if not self._is_video_playing_fullscreen(player):
                 return False
             zoom_amount = self._calculate_zoom(detected_ratio, zoom_narrow_ratios, file_ratio, player)
+            # Apply offset to compensate for rounding/precision issues
+            if zoom_offset != 0.0:
+                zoom_amount += zoom_offset
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom offset applied: {zoom_offset:.4f}, final zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
             title_display = title or "video"
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount:.2f} on {title_display} to remove black bars", level=xbmc.LOGINFO)
             if file_ratio and file_ratio != detected_ratio:
@@ -526,7 +531,11 @@ class Service(xbmc.Player):
             zoom_narrow_ratios = self._addon.getSetting("zoom_narrow_ratios") == "true"
         except Exception:
             zoom_narrow_ratios = False
-        return imdb_enabled, zoom_narrow_ratios
+        try:
+            zoom_offset = float(self._addon.getSetting("zoom_offset"))
+        except Exception:
+            zoom_offset = 0.01  # Default value
+        return imdb_enabled, zoom_narrow_ratios, zoom_offset
 
     def _get_cache_enabled(self):
         """Check if cache is enabled in settings."""
@@ -599,7 +608,7 @@ class Service(xbmc.Player):
             xbmc.log(f"service.remove.black.bars.gbm: Detection: title='{title}', year={year}, imdb_id={imdb_number}", level=xbmc.LOGDEBUG)
 
             # 1) IMDb (first priority, cache only IMDb results)
-            imdb_enabled, _ = self._read_settings()
+            imdb_enabled, _, _ = self._read_settings()
             imdb_ratio = None
             file_ratio = None
             encoded_black_bars_detected = False
@@ -719,8 +728,8 @@ class Service(xbmc.Player):
             result = self._detect_aspect_ratio()
             if result:
                 detected_ratio, file_ratio, title_display = result
-                _, zoom_narrow_ratios = self._read_settings()
-                self.zoom.apply_zoom(detected_ratio, self, zoom_narrow_ratios, file_ratio, title_display)
+                _, zoom_narrow_ratios, zoom_offset = self._read_settings()
+                self.zoom.apply_zoom(detected_ratio, self, zoom_narrow_ratios, file_ratio, title_display, zoom_offset)
             else:
                 xbmc.log("service.remove.black.bars.gbm: Zoom skipped: no aspect ratio detected", level=xbmc.LOGDEBUG)
         except Exception as e:

@@ -68,13 +68,17 @@ def test_real_world_case(zoom, case):
         file_ratio=file_ratio
     )
     
+    # Appliquer l'offset par défaut de 0.01 (comme dans les settings)
+    zoom_offset = 0.01
+    calculated_zoom_with_offset = calculated_zoom + zoom_offset
+    
     # Comparer avec le zoom idéal (tolérance de 0.05 pour les variations acceptables)
-    difference = abs(calculated_zoom - ideal_zoom)
+    difference = abs(calculated_zoom_with_offset - ideal_zoom)
     tolerance = 0.05
     
     assert difference < tolerance, (
         f"Cas '{title}' (IMDb={imdb_ratio}, file={file_ratio}): "
-        f"zoom calculé={calculated_zoom:.4f}, zoom idéal={ideal_zoom:.4f}, "
+        f"zoom calculé={calculated_zoom:.4f}, zoom avec offset={calculated_zoom_with_offset:.4f}, zoom idéal={ideal_zoom:.4f}, "
         f"différence={difference:.4f} (tolérance={tolerance}). "
         f"Ce cas nécessite peut-être une amélioration de la logique."
     )
