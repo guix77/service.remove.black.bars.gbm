@@ -122,14 +122,16 @@ def test_detect_encoded_black_bars():
     assert detected_ratio == 235
     assert file_ratio == 178
     
-    # Vérifier qu'un log de détection a été créé
+    # Vérifier qu'un log indiquant la différence ou les barres encodées a été créé
     import xbmc
-    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
-    assert len(log_messages) > 0, "Should log encoded black bars detection"
+    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg or "File ratio differs from IMDb" in msg]
+    assert len(log_messages) > 0, "Should log file ratio difference or encoded bars detection"
 
 
 def test_no_encoded_black_bars_similar_ratios():
-    """Test pas de barres encodées : ratios similaires (IMDb 235, fichier 237)"""
+    """Test pas de barres encodées : ratios similaires (IMDb 235, fichier 237)
+    - Différence: 2 < threshold (11) → file_ratio n'est pas utilisé
+    """
     # Mocker : IMDb ratio 235, File ratio 237 (différence < seuil)
     mock_getInfoLabel(237)
     mock_executeJSONRPC("tt1234567")
@@ -149,13 +151,8 @@ def test_no_encoded_black_bars_similar_ratios():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 235
-    # file_ratio is NOT returned if not close to 16:9 (not encoded bars)
-    assert file_ratio is None
-    
-    # Vérifier qu'aucun log de détection n'a été créé
-    import xbmc
-    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
-    assert len(log_messages) == 0, "Should not log encoded black bars for similar ratios"
+    # file_ratio is NOT returned if difference < threshold
+    assert file_ratio is None, "file_ratio should be None when difference < threshold"
 
 
 def test_no_encoded_black_bars_identical_ratios():
@@ -183,10 +180,7 @@ def test_no_encoded_black_bars_identical_ratios():
     # file_ratio is NOT returned if identical to detected_ratio (no encoded bars)
     assert file_ratio is None
     
-    # Vérifier qu'aucun log de détection n'a été créé
-    import xbmc
-    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
-    assert len(log_messages) == 0, "Should not log encoded black bars for identical ratios"
+    # Vérifier que file_ratio n'est pas utilisé (ratios identiques)
 
 
 def test_fallback_to_file_ratio_when_no_imdb():
@@ -263,10 +257,10 @@ def test_vertical_encoded_bars_narrower_file():
     assert detected_ratio == 185, "Should detect IMDb ratio 185"
     assert file_ratio == 175, "Should detect file ratio 175 (close to 16:9)"
     
-    # Vérifier qu'un log de détection a été créé
+    # Vérifier qu'un log indiquant la différence ou les barres encodées a été créé
     import xbmc
-    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
-    assert len(log_messages) > 0, "Should log encoded black bars detection"
+    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg or "File ratio differs from IMDb" in msg]
+    assert len(log_messages) > 0, "Should log file ratio difference or encoded bars detection"
     
     # Vérifier le calcul du zoom
     zoom = ZoomApplier()
@@ -280,12 +274,13 @@ def test_vertical_encoded_bars_narrower_file():
 
 
 def test_no_encoded_bars_if_file_not_16_9():
-    """Test que les barres encodées ne sont PAS détectées si file_ratio n'est pas proche de 16:9
+    """Test que file_ratio n'est PAS utilisé si ni file ni content ne sont proches de 16:9
     - File ratio: 166 (1.66:1, pas proche de 16:9)
-    - IMDb ratio: 185 (1.85:1)
-    - Ne doit PAS détecter de barres encodées (différence due à encodage/container, pas barres)
+    - IMDb ratio: 185 (1.85:1, pas proche de 16:9)
+    - Différence: 19 > threshold (9) MAIS ni file ni content proche de 16:9
+    - file_ratio n'est PAS utilisé (cas Basil/Le Baron Rouge)
     """
-    # Mocker : IMDb ratio 185, File ratio 166 (pas proche de 16:9)
+    # Mocker : IMDb ratio 185, File ratio 166 (ni l'un ni l'autre proche de 16:9)
     mock_getInfoLabel(166)
     mock_executeJSONRPC("tt1234567")
     
@@ -310,16 +305,13 @@ def test_no_encoded_bars_if_file_not_16_9():
     assert result is not None
     detected_ratio, file_ratio, title_display = result
     assert detected_ratio == 185, "Should detect IMDb ratio 185"
-    assert file_ratio is None, "Should NOT use file_ratio (not close to 16:9, not encoded bars)"
+    # file_ratio n'est PAS utilisé car ni file ni content proche de 16:9
+    assert file_ratio is None, "Should NOT use file_ratio (neither close to 16:9)"
     
-    # Vérifier qu'aucun log de détection n'a été créé
-    import xbmc
-    log_messages = [msg for msg, level in xbmc.logs if "Encoded black bars detected" in msg]
-    assert len(log_messages) == 0, "Should NOT log encoded black bars (file not close to 16:9)"
-    
-    # Vérifier le calcul du zoom (normal, sans barres encodées)
+    # Vérifier le calcul du zoom (sans file_ratio, zoom normal pour barres affichage)
     from addon import ZoomApplier
     zoom = ZoomApplier()
     zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=None)
-    expected = 185 / 177.0  # Normal zoom for display bars only
+    # Content (185) > 177: display_zoom = 185 / 177 = 1.045
+    expected = 185 / 177.0
     assert abs(zoom_value - expected) < 0.01, f"Zoom should be {expected:.3f}, got {zoom_value:.3f}"

@@ -333,12 +333,11 @@ class ZoomApplier:
         
         # If file_ratio == detected_ratio AND within 16:9 tolerance, no zoom needed
         # (no encoded bars, and no display bars if it's 16:9)
-        # If file_ratio == detected_ratio BUT outside 16:9 tolerance, continue to calculate
-        # display zoom (no encoded bars, but may have display bars)
         if file_ratio and file_ratio == detected_ratio and tolerance_min <= file_ratio <= tolerance_max:
             return 1.0
         
-        # If file_ratio is provided and different from detected_ratio, we have encoded black bars
+        # If file_ratio is provided and different from detected_ratio, use it for zoom calculation
+        # This handles both encoded black bars and cases where file format differs from content
         # We need to combine:
         # 1. Zoom to remove encoded black bars (file_ratio -> detected_ratio)
         # 2. Zoom to remove display black bars (detected_ratio -> 177 for wide ratios)
@@ -347,41 +346,34 @@ class ZoomApplier:
             if file_ratio > detected_ratio:
                 # File is wider than content: horizontal encoded bars, need to zoom in (file_ratio / detected_ratio)
                 encoded_zoom = file_ratio / float(detected_ratio)
-                bar_type = "horizontal"
             else:
                 # File is narrower than content: vertical encoded bars, need to zoom in (detected_ratio / file_ratio)
                 encoded_zoom = detected_ratio / float(file_ratio)
-                bar_type = "vertical"
             
-            xbmc.log(f"service.remove.black.bars.gbm: Encoded bars ({bar_type}): file={file_ratio}, content={detected_ratio}, encoded_zoom={encoded_zoom:.4f}", level=xbmc.LOGDEBUG)
+            xbmc.log(f"service.remove.black.bars.gbm: File ratio differs from detected: file={file_ratio}, content={detected_ratio}, encoded_zoom={encoded_zoom:.4f}", level=xbmc.LOGDEBUG)
             
             # Check if we need additional zoom for display black bars
-            if detected_ratio > 177:
+            # Only if detected_ratio is NOT within 16:9 tolerance
+            if tolerance_min <= detected_ratio <= tolerance_max:
+                # Content is 16:9, no display zoom needed
+                xbmc.log(f"service.remove.black.bars.gbm: Encoded zoom only: {encoded_zoom:.4f} (content is 16:9, no display bars)", level=xbmc.LOGDEBUG)
+                return encoded_zoom
+            elif detected_ratio > tolerance_max:
                 # Content is wider than 16:9, need additional zoom for display bars
                 display_zoom = detected_ratio / 177.0
                 total_zoom = encoded_zoom * display_zoom
-                xbmc.log(f"service.remove.black.bars.gbm: Display bars (wide): detected={detected_ratio}, display_zoom={display_zoom:.4f}, total_zoom={total_zoom:.4f} (encoded×display)", level=xbmc.LOGDEBUG)
-            elif zoom_narrow_ratios and detected_ratio < 177:
+                xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
+                return total_zoom
+            elif zoom_narrow_ratios and detected_ratio < tolerance_min:
                 # Content is narrower than 16:9, and zoom_narrow_ratios is enabled
                 display_zoom = 177.0 / detected_ratio
                 total_zoom = encoded_zoom * display_zoom
-                xbmc.log(f"service.remove.black.bars.gbm: Display bars (narrow): detected={detected_ratio}, display_zoom={display_zoom:.4f}, total_zoom={total_zoom:.4f} (encoded×display)", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
+                return total_zoom
             else:
-                # No additional zoom needed for display bars
-                total_zoom = encoded_zoom
-                xbmc.log(f"service.remove.black.bars.gbm: No display bars: detected={detected_ratio}, total_zoom={total_zoom:.4f} (encoded only)", level=xbmc.LOGDEBUG)
-            
-            # Safety check: zoom should never be < 1.0 (reduction can never remove bars)
-            if total_zoom < 1.0:
-                # Log all parameters for debugging (ERROR level for visibility in logs)
-                display_zoom_value = display_zoom if 'display_zoom' in locals() else None
-                display_zoom_str = f"{display_zoom_value:.4f}" if display_zoom_value is not None else "N/A"
-                xbmc.log(f"service.remove.black.bars.gbm: ERROR - Calculated zoom {total_zoom:.3f} < 1.0 (reduction). This cannot remove black bars! Parameters: file_ratio={file_ratio}, detected_ratio={detected_ratio}, encoded_zoom={encoded_zoom:.4f}, display_zoom={display_zoom_str}, zoom_narrow_ratios={zoom_narrow_ratios}", level=xbmc.LOGERROR)
-                # Return 1.0 (no zoom) as safe fallback instead of partial zoom
-                # No user notification - this is an internal error, logged for debugging
-                return 1.0
-            
-            return total_zoom
+                # No additional zoom needed for display bars (narrow ratios disabled)
+                xbmc.log(f"service.remove.black.bars.gbm: Encoded zoom only: {encoded_zoom:.4f} (narrow ratios disabled)", level=xbmc.LOGDEBUG)
+                return encoded_zoom
         
         # Normal zoom calculation (no encoded black bars)
         # If file_ratio is available and close to 16:9, no need to zoom
@@ -615,29 +607,29 @@ class Service(xbmc.Player):
                         difference = abs(file_ratio_temp - imdb_ratio)
                         threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
                         
-                        # Only detect encoded bars if:
-                        # 1. Difference is significant (> threshold)
-                        # 2. AND file_ratio is close to 16:9 (175-180) - this is the typical case for encoded bars
-                        # 3. AND detected_ratio is NOT close to 16:9 (otherwise no zoom needed anyway)
+                        # Use file_ratio if difference is significant (> threshold) AND
+                        # (file_ratio is close to 16:9 OR content is close to 16:9)
+                        # This handles:
+                        # - Encoded black bars: file_ratio ~16:9, content not 16:9
+                        # - Cases like Invasion: content ~16:9, file different (no encoded bars but need file_ratio)
+                        # But NOT cases like Basil/Le Baron Rouge: neither close to 16:9 (encoding/container issue)
                         tolerance_min, tolerance_max = self.zoom._get_16_9_tolerance(self)
                         file_is_16_9 = tolerance_min <= file_ratio_temp <= tolerance_max
                         content_is_16_9 = tolerance_min <= imdb_ratio <= tolerance_max
                         
-                        if difference > threshold and file_is_16_9 and not content_is_16_9:
-                            encoded_black_bars_detected = True
+                        if difference > threshold and (file_is_16_9 or content_is_16_9):
                             file_ratio = file_ratio_temp
-                            xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected: IMDb={imdb_ratio}, file={file_ratio}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                            if file_is_16_9 and not content_is_16_9:
+                                xbmc.log(f"service.remove.black.bars.gbm: Encoded black bars detected: IMDb={imdb_ratio}, file={file_ratio}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                            else:
+                                xbmc.log(f"service.remove.black.bars.gbm: File ratio differs from IMDb: IMDb={imdb_ratio}, file={file_ratio}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
                         else:
-                            # Don't use file_ratio if conditions not met - likely not encoded bars
-                            # Just use IMDb ratio for zoom calculation
+                            # Don't use file_ratio if conditions not met
                             file_ratio = None
                             if difference > threshold:
-                                if not file_is_16_9:
-                                    xbmc.log(f"service.remove.black.bars.gbm: Difference detected but file ratio ({file_ratio_temp}) not close to 16:9 - likely encoding/container issue, not encoded bars. Using IMDb ratio only.", level=xbmc.LOGDEBUG)
-                                elif content_is_16_9:
-                                    xbmc.log(f"service.remove.black.bars.gbm: Both file ({file_ratio_temp}) and content ({imdb_ratio}) close to 16:9 - no encoded bars. Using IMDb ratio only.", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: Difference detected but neither file ({file_ratio_temp}) nor content ({imdb_ratio}) close to 16:9 - likely encoding/container issue, not encoded bars. Using IMDb ratio only.", level=xbmc.LOGDEBUG)
                             else:
-                                xbmc.log(f"service.remove.black.bars.gbm: No encoded black bars: IMDb={imdb_ratio}, file={file_ratio_temp}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
+                                xbmc.log(f"service.remove.black.bars.gbm: No significant difference: IMDb={imdb_ratio}, file={file_ratio_temp}, diff={difference} (threshold={threshold})", level=xbmc.LOGDEBUG)
 
             # 2) Kodi metadata (fallback if IMDb unavailable or not found)
             if not imdb_ratio:

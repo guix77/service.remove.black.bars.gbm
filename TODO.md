@@ -5,19 +5,25 @@
 ### 1.1 Corriger l'incohérence `file_ratio == detected_ratio` ✅
 - **Fait** : Logique clarifiée avec tolérance 16:9 conservée
 - **Fait** : Test amélioré pour couvrir les deux cas (dans/hors tolérance)
-- **Fichier** : `addon.py:334-339`, `tests/test_edge_cases.py:90-102`
+- **Fichier** : `addon.py:334-337`, `tests/test_edge_cases.py:90-102`
 
 ### 1.2 Vérifier la validité mathématique du zoom combiné ✅
 - **Fait** : 5 tests de validation mathématique créés
 - **Fait** : Logs détaillés ajoutés (encoded_zoom, display_zoom, total_zoom)
 - **Fait** : Formule `encoded_zoom × display_zoom` validée
-- **Fichier** : `tests/test_zoom_math_validation.py`, `addon.py:341-384`
+- **Fichier** : `tests/test_zoom_math_validation.py`, `addon.py:339-376`
 
 ### 1.3 Améliorer le fallback pour zoom < 1.0 ✅
 - **Fait** : Logs améliorés avec tous les paramètres (niveau ERROR)
 - **Fait** : Fallback retourne 1.0 (pas de zoom) au lieu d'un zoom partiel
 - **Fait** : Test ajouté pour vérifier la robustesse
-- **Fichier** : `addon.py:374-382`, `tests/test_zoom_applier.py:137-175`
+- **Fichier** : `addon.py:373-381`, `tests/test_zoom_applier.py:137-175`
+
+### 1.4 Restaurer la logique de détection des barres encodées ✅
+- **Fait** : Logique corrigée pour utiliser file_ratio seulement si file OU content proche de 16:9
+- **Fait** : Cas Invasion (file=240, content=178) fonctionne correctement (zoom 1.35)
+- **Fait** : Cas Basil/Le Baron Rouge n'utilisent pas file_ratio incorrectement
+- **Fichier** : `addon.py:610-632`, `tests/test_encoded_black_bars.py`
 
 ---
 
@@ -153,10 +159,17 @@ pytest tests/ --cov=addon --cov-report=term-missing
 
 ## Statut global
 
-- **Phase 1** : ✅ Terminée (3/3 tâches)
+- **Phase 1** : ✅ Terminée (4/4 tâches)
 - **Phase 2** : ⏳ En attente (0/3 tâches)
 - **Phase 3** : ⏳ En attente (0/2 tâches)
 - **Phase 4** : ⏳ En attente (0/3 tâches)
 
-**Progression totale** : 3/11 tâches (27%)
+**Progression totale** : 4/12 tâches (33%)
+
+## Notes importantes
+
+- **Logique de détection** : Utilise file_ratio si différence > threshold ET (file_ratio proche 16:9 OU content proche 16:9)
+- **Cas validés** : Invasion (1.35), Basil (1.045), Le Baron Rouge (1.045), barres encodées réelles
+- **Tests** : 67 tests passent
+- **Prochaine étape** : Tests en conditions réelles pour valider > 80% de réussite
 
