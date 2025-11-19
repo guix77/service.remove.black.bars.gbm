@@ -56,8 +56,8 @@ def test_combined_zoom_horizontal_encoded_bars(zoom):
     # Calcul par le code
     zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
     
-    # Vérification
-    assert abs(zoom_value - expected_total_manual) < 0.001, \
+    # Vérification (tolérance 0.01 pour tenir compte de l'arrondi vers le haut)
+    assert abs(zoom_value - expected_total_manual) < 0.01, \
         f"Zoom combiné incorrect: attendu {expected_total_manual:.4f}, obtenu {zoom_value:.4f}"
     assert zoom_value > 1.0, "Zoom doit être > 1.0 pour enlever les barres"
     
@@ -95,8 +95,8 @@ def test_combined_zoom_vertical_encoded_bars(zoom):
     # Calcul par le code
     zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
     
-    # Vérification
-    assert abs(zoom_value - expected_total_manual) < 0.001, \
+    # Vérification (tolérance 0.01 pour tenir compte de l'arrondi vers le haut)
+    assert abs(zoom_value - expected_total_manual) < 0.01, \
         f"Zoom combiné incorrect: attendu {expected_total_manual:.4f}, obtenu {zoom_value:.4f}"
     assert zoom_value > 1.0, "Zoom doit être > 1.0 pour enlever les barres"
 
@@ -121,8 +121,8 @@ def test_encoded_bars_only_no_display_bars(zoom):
     # Calcul par le code
     zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
     
-    # Vérification
-    assert abs(zoom_value - expected_total_manual) < 0.001, \
+    # Vérification (tolérance 0.01 pour tenir compte de l'arrondi vers le haut)
+    assert abs(zoom_value - expected_total_manual) < 0.01, \
         f"Zoom encodé seul incorrect: attendu {expected_total_manual:.4f}, obtenu {zoom_value:.4f}"
 
 
@@ -146,8 +146,8 @@ def test_display_bars_only_no_encoded_bars(zoom):
     # Calcul par le code
     zoom_value = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
     
-    # Vérification
-    assert abs(zoom_value - expected_total_manual) < 0.001, \
+    # Vérification (tolérance 0.01 pour tenir compte de l'arrondi vers le haut)
+    assert abs(zoom_value - expected_total_manual) < 0.01, \
         f"Zoom affichage seul incorrect: attendu {expected_total_manual:.4f}, obtenu {zoom_value:.4f}"
 
 
@@ -176,7 +176,8 @@ def test_zoom_multiplication_property(zoom):
     combined_zoom = zoom._calculate_zoom(detected_ratio, file_ratio=file_ratio)
     
     # Vérification : combined_zoom devrait être proche de encoded_zoom × display_zoom
+    # (tolérance 0.01 pour tenir compte de l'arrondi vers le haut)
     expected_combined = encoded_zoom * display_zoom
-    assert abs(combined_zoom - expected_combined) < 0.001, \
+    assert abs(combined_zoom - expected_combined) < 0.01, \
         f"Propriété de multiplication non respectée: {combined_zoom:.4f} != {expected_combined:.4f}"
 

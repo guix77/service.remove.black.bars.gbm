@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import time
+import math
 
 import xbmc
 import xbmcaddon
@@ -356,6 +357,13 @@ class ZoomApplier:
         except Exception:
             return (175, 180)  # Default values
 
+    def _round_to_0_01(self, value):
+        """
+        Arrondit vers le haut à 0.01 près.
+        Exemple: 1.3333 -> 1.34, 1.3308 -> 1.34, 1.3616 -> 1.37
+        """
+        return math.ceil(value * 100) / 100.0
+
     def _calculate_zoom(self, detected_ratio, zoom_narrow_ratios=False, file_ratio=None, player=None):
         """
         Calculate zoom amount based on detected ratio.
@@ -398,7 +406,7 @@ class ZoomApplier:
                 else:
                     direct_zoom = 177.0 / file_ratio
                     xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio directly (narrow): file_ratio={file_ratio}, zoom={direct_zoom:.4f}", level=xbmc.LOGDEBUG)
-                return direct_zoom
+                return self._round_to_0_01(direct_zoom)
             
             # Otherwise, calculate combined zoom (encoded bars + display bars)
             # This handles both encoded black bars and cases where file format differs from content
@@ -419,7 +427,7 @@ class ZoomApplier:
             if tolerance_min <= detected_ratio <= tolerance_max:
                 # Content is 16:9, no display zoom needed
                 xbmc.log(f"service.remove.black.bars.gbm: Encoded zoom only: {encoded_zoom:.4f} (content is 16:9, no display bars)", level=xbmc.LOGDEBUG)
-                return encoded_zoom
+                return self._round_to_0_01(encoded_zoom)
             elif detected_ratio > tolerance_max:
                 # Content is wider than 16:9, need additional zoom for display bars
                 display_zoom = detected_ratio / 177.0
@@ -428,7 +436,7 @@ class ZoomApplier:
                     xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
                     return 1.0
                 xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
-                return total_zoom
+                return self._round_to_0_01(total_zoom)
             elif zoom_narrow_ratios and detected_ratio < tolerance_min:
                 # Content is narrower than 16:9, and zoom_narrow_ratios is enabled
                 display_zoom = 177.0 / detected_ratio
@@ -437,11 +445,11 @@ class ZoomApplier:
                     xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
                     return 1.0
                 xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
-                return total_zoom
+                return self._round_to_0_01(total_zoom)
             else:
                 # No additional zoom needed for display bars (narrow ratios disabled)
                 xbmc.log(f"service.remove.black.bars.gbm: Encoded zoom only: {encoded_zoom:.4f} (narrow ratios disabled)", level=xbmc.LOGDEBUG)
-                return encoded_zoom
+                return self._round_to_0_01(encoded_zoom)
         
         # Normal zoom calculation (no encoded black bars)
         # If file_ratio is available and close to 16:9, no need to zoom
@@ -454,11 +462,11 @@ class ZoomApplier:
         if detected_ratio > 177:
             display_zoom = detected_ratio / 177.0
             xbmc.log(f"service.remove.black.bars.gbm: Display bars only (wide): detected_ratio={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
-            return display_zoom
+            return self._round_to_0_01(display_zoom)
         elif zoom_narrow_ratios and detected_ratio < 177:
             display_zoom = 177.0 / detected_ratio
             xbmc.log(f"service.remove.black.bars.gbm: Display bars only (narrow): detected_ratio={detected_ratio}, zoom={display_zoom:.4f}", level=xbmc.LOGDEBUG)
-            return display_zoom
+            return self._round_to_0_01(display_zoom)
         xbmc.log(f"service.remove.black.bars.gbm: No zoom needed: detected_ratio={detected_ratio} (no bars to remove)", level=xbmc.LOGDEBUG)
         return 1.0
 
