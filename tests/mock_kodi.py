@@ -13,10 +13,24 @@ class MockInfoLabel:
         return self.values.get(label, "")
 
 
+class MockVideoStreamDetail:
+    """Mock pour VideoStreamDetail"""
+    def __init__(self, width=None, height=None):
+        self._width = width
+        self._height = height
+    
+    def getWidth(self):
+        return self._width
+    
+    def getHeight(self):
+        return self._height
+
+
 class MockVideoInfoTag:
     """Mock pour video_info_tag"""
     def __init__(self, aspect_ratio=None, media_type="movie", title=None, 
-                 original_title=None, year=None, tvshow_title=None, filename=None):
+                 original_title=None, year=None, tvshow_title=None, filename=None,
+                 video_stream_detail=None):
         self._aspect_ratio = aspect_ratio
         self._media_type = media_type
         self._title = title
@@ -24,6 +38,7 @@ class MockVideoInfoTag:
         self._year = year
         self._tvshow_title = tvshow_title
         self._filename = filename
+        self._video_stream_detail = video_stream_detail
     
     def getVideoAspectRatio(self):
         return self._aspect_ratio
@@ -45,19 +60,26 @@ class MockVideoInfoTag:
     
     def getFilenameAndPath(self):
         return self._filename
+    
+    def getVideoStreamDetail(self):
+        return self._video_stream_detail
 
 
 class MockPlayer:
     """Mock pour xbmc.Player()"""
-    def __init__(self, is_playing_video=False, is_playing=False):
+    def __init__(self, is_playing_video=False, is_playing=False, video_info_tag=None):
         self._is_playing_video = is_playing_video
         self._is_playing = is_playing
+        self._video_info_tag = video_info_tag
     
     def isPlayingVideo(self):
         return self._is_playing_video
     
     def isPlaying(self):
         return self._is_playing
+    
+    def getVideoInfoTag(self):
+        return self._video_info_tag
     
     def _set_zoom(self, zoom_amount):
         """Mock pour _set_zoom method"""
