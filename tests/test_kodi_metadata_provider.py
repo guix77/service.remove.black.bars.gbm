@@ -17,7 +17,7 @@ sys.modules['xbmcaddon'].Addon = lambda: mock_kodi.MockAddon()
 sys.modules['xbmcgui'] = mock_kodi.MockXbmcgui()
 
 from addon import KodiMetadataProvider
-from tests.mock_kodi import MockVideoInfoTag, MockVideoStreamDetail, MockPlayer
+from tests.mock_kodi import MockVideoInfoTag
 
 
 @pytest.fixture
@@ -29,125 +29,359 @@ def provider():
     return provider
 
 
-def test_get_aspect_ratio_from_python_api(provider):
-    """Test avec Python API pour ratio 2.35:1 (1920x816)"""
+def test_get_aspect_ratio_from_jsonrpc(provider):
+    """Test avec JSON-RPC pour ratio 2.35:1 (1920x816)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1920, height=816)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    assert ratio == 235
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 816
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio == 235
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_get_aspect_ratio_16_9(provider):
     """Test avec ratio 16:9 (1920x1080)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1920, height=1080)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    # 1920/1080 = 1.777... * 100 = 177.7... arrondi = 177
-    assert ratio == 177
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 1080
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        # 1920/1080 = 1.777... * 100 = 177.7... arrondi = 177
+        assert ratio == 177
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_get_aspect_ratio_4_3(provider):
     """Test avec ratio 4:3 (1440x1080)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1440, height=1080)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    assert ratio == 133
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1440,
+                                "height": 1080
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio == 133
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_get_aspect_ratio_1_85(provider):
     """Test avec ratio 1.85:1 (1920x1037)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1920, height=1037)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    # 1920/1037 = 1.851... * 100 = 185.1... arrondi = 185
-    assert ratio == 185
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 1037
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        # 1920/1037 = 1.851... * 100 = 185.1... arrondi = 185
+        assert ratio == 185
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_get_aspect_ratio_2_40(provider):
     """Test avec ratio 2.40:1 (1920x800)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1920, height=800)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    assert ratio == 240
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 800
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio == 240
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_no_aspect_ratio_available(provider):
-    """Test quand aucun ratio n'est disponible (getVideoStreamDetail retourne None)"""
+    """Test quand aucun ratio n'est disponible (JSON-RPC retourne résultat vide)"""
+    import json
     video_tag = MockVideoInfoTag()
-    video_info_tag = MockVideoInfoTag(video_stream_detail=None)  # Pas de stream detail
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    assert ratio is None
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {}
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio is None
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
-def test_no_player_provided(provider):
-    """Test quand aucun player n'est fourni"""
+def test_jsonrpc_returns_no_result(provider):
+    """Test quand JSON-RPC retourne None (pas de résultat)"""
+    import json
     video_tag = MockVideoInfoTag()
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=None)
-    assert ratio is None
+    def mock_executeJSONRPC(command):
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio is None
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_rounding(provider):
     """Test arrondi correct (1920x813 ≈ 2.36:1 -> 236)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=1920, height=813)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    # 1920/813 = 2.361... * 100 = 236.1... arrondi = 236
-    assert ratio == 236
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 813
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        # 1920/813 = 2.361... * 100 = 236.1... arrondi = 236
+        assert ratio == 236
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_with_remote_source(provider):
     """Test avec source distante (Jellyfin/Plex)"""
+    import json
     video_tag = MockVideoInfoTag(filename="http://jellyfin/video.mp4")
-    stream_detail = MockVideoStreamDetail(width=1920, height=800)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    assert ratio == 240
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 1920,
+                                "height": 800
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        assert ratio == 240
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
 def test_get_aspect_ratio_from_resolution(provider):
-    """Test calcul depuis résolution réelle via Python API (plus précis)"""
+    """Test calcul depuis résolution réelle via JSON-RPC (plus précis)"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=576, height=352)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    # 576/352 = 1.6364, * 100 = 163.64, arrondi = 163
-    expected = int((576 / 352.0) * 100)
-    assert ratio == expected, f"Expected {expected}, got {ratio}"
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 576,
+                                "height": 352
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        # 576/352 = 1.6364, * 100 = 163.64, arrondi = 163
+        expected = int((576 / 352.0) * 100)
+        assert ratio == expected, f"Expected {expected}, got {ratio}"
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
 
 
-def test_resolution_from_python_api(provider):
-    """Test que la résolution via Python API fonctionne correctement"""
+def test_resolution_from_jsonrpc(provider):
+    """Test que la résolution via JSON-RPC fonctionne correctement"""
+    import json
     video_tag = MockVideoInfoTag()
-    stream_detail = MockVideoStreamDetail(width=576, height=352)
-    video_info_tag = MockVideoInfoTag(video_stream_detail=stream_detail)
-    player = MockPlayer(video_info_tag=video_info_tag)
+    import addon as addon_module
+    original_executeJSONRPC = addon_module.xbmc.executeJSONRPC
     
-    ratio = provider.get_aspect_ratio(video_tag, player=player)
-    # Devrait utiliser la résolution (163)
-    expected_from_resolution = int((576 / 352.0) * 100)
-    assert ratio == expected_from_resolution, f"Should use resolution ({expected_from_resolution}). Got {ratio}"
+    def mock_executeJSONRPC(command):
+        cmd_json = json.loads(command)
+        if cmd_json.get("method") == "Player.GetItem" and "streamdetails" in cmd_json.get("params", {}).get("properties", []):
+            return json.dumps({
+                "jsonrpc": "2.0",
+                "result": {
+                    "item": {
+                        "streamdetails": {
+                            "video": [{
+                                "width": 576,
+                                "height": 352
+                            }]
+                        }
+                    }
+                },
+                "id": 1
+            })
+        return None
+    
+    addon_module.xbmc.executeJSONRPC = mock_executeJSONRPC
+    try:
+        ratio = provider.get_aspect_ratio(video_tag)
+        # Devrait utiliser la résolution (163)
+        expected_from_resolution = int((576 / 352.0) * 100)
+        assert ratio == expected_from_resolution, f"Should use resolution ({expected_from_resolution}). Got {ratio}"
+    finally:
+        addon_module.xbmc.executeJSONRPC = original_executeJSONRPC
