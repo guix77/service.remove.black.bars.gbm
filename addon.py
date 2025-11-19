@@ -133,6 +133,12 @@ class KodiMetadataProvider:
                 result = xbmc.executeJSONRPC(json_cmd)
                 if result:
                     result_json = json.loads(result)
+                    # Check for errors first
+                    if "error" in result_json:
+                        error_msg = result_json.get("error", {}).get("message", "Unknown error")
+                        if attempt == max_retries - 1:
+                            xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error after {max_retries} attempts{reason_text}: {error_msg}", level=xbmc.LOGDEBUG)
+                        continue
                     if "result" in result_json and "width" in result_json["result"] and "height" in result_json["result"]:
                         width = result_json["result"]["width"]
                         height = result_json["result"]["height"]
@@ -149,8 +155,8 @@ class KodiMetadataProvider:
                                 xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio from resolution: {ratio} ({width}x{height})", level=xbmc.LOGDEBUG)
                                 break  # Don't retry if ratio is invalid
                     elif attempt == max_retries - 1:
-                        # Last attempt failed, log the error
-                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no width/height after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
+                        # Last attempt failed, log the full result for debugging
+                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no width/height after {max_retries} attempts{reason_text}. Result keys: {list(result_json.get('result', {}).keys())}", level=xbmc.LOGDEBUG)
                 elif attempt == max_retries - 1:
                     # Last attempt failed, log the error
                     xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no result after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
