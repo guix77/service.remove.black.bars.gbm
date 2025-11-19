@@ -62,17 +62,9 @@ def setup_test():
     addon_module.getOriginalAspectRatio = original_getOriginalAspectRatio
 
 
-def mock_getInfoLabel(file_ratio):
-    """Helper pour mocker getInfoLabel avec un ratio de fichier"""
-    def mock_func(label):
-        if label == "VideoPlayer.VideoAspect":
-            return str(file_ratio / 100.0) if file_ratio else ""
-        return ""
-    addon_module.xbmc.getInfoLabel = mock_func
-
-
-def mock_executeJSONRPC(imdb_number=None):
-    """Helper pour mocker executeJSONRPC"""
+def mock_executeJSONRPC(imdb_number=None, file_ratio=None):
+    """Helper pour mocker executeJSONRPC (gère à la fois Player.GetItem et Player.GetProperties)"""
+    import json
     def mock_func(command):
         cmd = json.loads(command)
         if cmd.get("method") == "Player.GetItem":
@@ -90,6 +82,25 @@ def mock_executeJSONRPC(imdb_number=None):
                 if imdb_number:
                     result["result"]["item"]["uniqueid"]["imdb"] = imdb_number
                 return json.dumps(result)
+        elif cmd.get("method") == "Player.GetProperties" and "properties" in cmd.get("params", {}):
+            if "width" in cmd["params"]["properties"] and "height" in cmd["params"]["properties"]:
+                if file_ratio:
+                    # Calculer une résolution qui donne le ratio demandé
+                    height = 1000
+                    width = int((file_ratio / 100.0) * height)
+                    return json.dumps({
+                        "jsonrpc": "2.0",
+                        "result": {
+                            "width": width,
+                            "height": height
+                        },
+                        "id": 1
+                    })
+                return json.dumps({
+                    "jsonrpc": "2.0",
+                    "result": {},
+                    "id": 1
+                })
         return json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}})
     addon_module.xbmc.executeJSONRPC = mock_func
 
@@ -97,8 +108,7 @@ def mock_executeJSONRPC(imdb_number=None):
 def test_detect_encoded_black_bars():
     """Test détection de barres encodées : IMDb 235, fichier 178"""
     # Mocker : IMDb ratio 235 (2.35:1), File ratio 178 (16:9)
-    mock_getInfoLabel(178)
-    mock_executeJSONRPC("tt1234567")
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=178)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
@@ -134,8 +144,7 @@ def test_no_encoded_black_bars_similar_ratios():
     - Avec la nouvelle logique : file_ratio EST utilisé (différence > 0 ET ni file ni content proches 16:9)
     """
     # Mocker : IMDb ratio 235, File ratio 237 (différence < seuil mais ni proche 16:9)
-    mock_getInfoLabel(237)
-    mock_executeJSONRPC("tt1234567")
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=237)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
@@ -159,8 +168,7 @@ def test_no_encoded_black_bars_similar_ratios():
 def test_no_encoded_black_bars_identical_ratios():
     """Test pas de barres encodées : ratios identiques"""
     # Mocker : IMDb ratio 235, File ratio 235 (identique)
-    mock_getInfoLabel(235)
-    mock_executeJSONRPC("tt1234567")
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=235)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
@@ -187,8 +195,7 @@ def test_no_encoded_black_bars_identical_ratios():
 def test_fallback_to_file_ratio_when_no_imdb():
     """Test fallback vers ratio fichier quand IMDb n'est pas disponible"""
     # Mocker : Pas de ratio IMDb, File ratio 178
-    mock_getInfoLabel(178)
-    mock_executeJSONRPC(None)
+    mock_executeJSONRPC(imdb_number=None, file_ratio=178)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
@@ -232,8 +239,7 @@ def test_vertical_encoded_bars_narrower_file():
     from addon import ZoomApplier
     
     # Mocker : IMDb ratio 185, File ratio 175 (proche de 16:9, diff=10 > threshold=9)
-    mock_getInfoLabel(175)
-    mock_executeJSONRPC("tt1234567")
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=175)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
@@ -282,8 +288,7 @@ def test_no_encoded_bars_if_file_not_16_9():
     - file_ratio EST utilisé directement (cas Basil/Le Baron Rouge)
     """
     # Mocker : IMDb ratio 185, File ratio 166 (ni l'un ni l'autre proche de 16:9)
-    mock_getInfoLabel(166)
-    mock_executeJSONRPC("tt1234567")
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=166)
     
     service = Service()
     video_tag = MockVideoInfoTag(title="Test Movie", year=2020)
