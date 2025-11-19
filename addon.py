@@ -98,6 +98,7 @@ class KodiMetadataProvider:
         """
         Get aspect ratio from Kodi metadata using JSON-RPC Player.GetProperties.
         Calculates ratio from actual video resolution (width/height).
+        Retries up to 3 times with small delays if resolution is not immediately available.
         
         Returns aspect ratio as integer (e.g., 178 for 16:9, 240 for 2.40:1).
         Returns None if resolution cannot be obtained.
@@ -110,32 +111,49 @@ class KodiMetadataProvider:
         try:
             reason_text = f" ({reason})" if reason else ""
             
-            # Get resolution using JSON-RPC Player.GetProperties
-            json_cmd = json.dumps({
-                "jsonrpc": "2.0",
-                "method": "Player.GetProperties",
-                "params": {
-                    "playerid": 1,
-                    "properties": ["width", "height"]
-                },
-                "id": 1
-            })
-            result = xbmc.executeJSONRPC(json_cmd)
-            if result:
-                result_json = json.loads(result)
-                if "result" in result_json and "width" in result_json["result"] and "height" in result_json["result"]:
-                    width = result_json["result"]["width"]
-                    height = result_json["result"]["height"]
-                    if width and height and width > 0 and height > 0:
-                        ratio = int((width / float(height)) * 100)
-                        # Validate ratio
-                        if MIN_VALID_RATIO <= ratio <= MAX_VALID_RATIO:
-                            xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio}", level=xbmc.LOGDEBUG)
-                            return ratio
-                        else:
-                            xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio from resolution: {ratio} ({width}x{height})", level=xbmc.LOGDEBUG)
-            else:
-                xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no result{reason_text}", level=xbmc.LOGDEBUG)
+            # Retry up to 3 times with small delays (resolution may not be available immediately)
+            max_retries = 3
+            retry_delay_ms = 100  # 100ms between retries
+            
+            for attempt in range(max_retries):
+                if attempt > 0:
+                    # Wait a bit before retrying
+                    xbmc.sleep(retry_delay_ms)
+                
+                # Get resolution using JSON-RPC Player.GetProperties
+                json_cmd = json.dumps({
+                    "jsonrpc": "2.0",
+                    "method": "Player.GetProperties",
+                    "params": {
+                        "playerid": 1,
+                        "properties": ["width", "height"]
+                    },
+                    "id": 1
+                })
+                result = xbmc.executeJSONRPC(json_cmd)
+                if result:
+                    result_json = json.loads(result)
+                    if "result" in result_json and "width" in result_json["result"] and "height" in result_json["result"]:
+                        width = result_json["result"]["width"]
+                        height = result_json["result"]["height"]
+                        if width and height and width > 0 and height > 0:
+                            ratio = int((width / float(height)) * 100)
+                            # Validate ratio
+                            if MIN_VALID_RATIO <= ratio <= MAX_VALID_RATIO:
+                                if attempt > 0:
+                                    xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio} (after {attempt + 1} attempts)", level=xbmc.LOGDEBUG)
+                                else:
+                                    xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio}", level=xbmc.LOGDEBUG)
+                                return ratio
+                            else:
+                                xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio from resolution: {ratio} ({width}x{height})", level=xbmc.LOGDEBUG)
+                                break  # Don't retry if ratio is invalid
+                    elif attempt == max_retries - 1:
+                        # Last attempt failed, log the error
+                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no width/height after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
+                elif attempt == max_retries - 1:
+                    # Last attempt failed, log the error
+                    xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no result after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Error getting resolution via JSON-RPC{reason_text}: {e}", level=xbmc.LOGDEBUG)
         
