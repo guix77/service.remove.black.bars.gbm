@@ -448,6 +448,7 @@ class ZoomApplier:
                 return self._round_to_0_01(encoded_zoom)
             elif detected_ratio > tolerance_max:
                 # Content is wider than 16:9, need additional zoom for display bars
+                # Standard calculation: use 177 as reference
                 display_zoom = detected_ratio / 177.0
                 total_zoom = encoded_zoom * display_zoom
                 if total_zoom < 1.0:
@@ -742,6 +743,9 @@ class Service(xbmc.Player):
             # Return tuple (detected_ratio, file_ratio, title_display)
             # detected_ratio is IMDb ratio if available, otherwise file_ratio
             # file_ratio is set if available (for zoom calculation, even if no encoded black bars)
+            # Note: Even if file_ratio is close to 16:9 and is the real content ratio (no encoded bars),
+            # we still use imdb_ratio as detected_ratio and pass file_ratio to zoom calculation
+            # This allows the zoom calculation to handle the case properly
             detected_ratio = imdb_ratio if imdb_ratio else file_ratio
             if detected_ratio:
                 source = "IMDb" if imdb_ratio else "Kodi metadata"
