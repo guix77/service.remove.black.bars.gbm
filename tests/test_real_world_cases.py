@@ -62,6 +62,8 @@ def test_real_world_case(zoom, case):
     zoom_narrow_ratios = imdb_ratio < 177 if imdb_ratio else False
     
     # Calculer le zoom avec la logique actuelle
+    # Note: file_ratio est passé directement, même si dans la vraie exécution
+    # il pourrait ne pas être utilisé si diff < threshold
     calculated_zoom = zoom._calculate_zoom(
         detected_ratio=imdb_ratio,
         zoom_narrow_ratios=zoom_narrow_ratios,

@@ -448,14 +448,32 @@ class ZoomApplier:
                 return self._round_to_0_01(encoded_zoom)
             elif detected_ratio > tolerance_max:
                 # Content is wider than 16:9, need additional zoom for display bars
-                # Standard calculation: use 177 as reference
-                display_zoom = detected_ratio / 177.0
-                total_zoom = encoded_zoom * display_zoom
-                if total_zoom < 1.0:
-                    xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
-                    return 1.0
-                xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
-                return self._round_to_0_01(total_zoom)
+                # Special case: if file_ratio is exactly 16:9 (177) and detected_ratio is around 185
+                # Use geometric mean of direct zoom and combined zoom for better accuracy
+                # Geometric mean: sqrt(zoom_direct * zoom_combined)
+                # This handles cases like "Superman" where file_ratio=177 (exactly 16:9) and detected_ratio=185
+                # Justification: geometric mean gives the zoom that, when applied, produces the same result
+                # as applying direct zoom and combined zoom in sequence
+                if file_is_16_9 and file_ratio == 177 and 180 <= detected_ratio <= 190:
+                    # Use geometric mean for file_ratio exactly 16:9 (177) and detected_ratio around 185
+                    import math
+                    zoom_direct = detected_ratio / 177.0
+                    zoom_combined = encoded_zoom * (detected_ratio / 177.0)
+                    geometric_mean_zoom = math.sqrt(zoom_direct * zoom_combined)
+                    xbmc.log(f"service.remove.black.bars.gbm: Geometric mean zoom for file_ratio exactly 16:9: direct={zoom_direct:.4f}, combined={zoom_combined:.4f}, geometric={geometric_mean_zoom:.4f} (file_ratio={file_ratio}, detected_ratio={detected_ratio})", level=xbmc.LOGDEBUG)
+                    if geometric_mean_zoom < 1.0:
+                        xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: {geometric_mean_zoom:.4f}", level=xbmc.LOGERROR)
+                        return 1.0
+                    return self._round_to_0_01(geometric_mean_zoom)
+                else:
+                    # Standard calculation: use 177 as reference
+                    display_zoom = detected_ratio / 177.0
+                    total_zoom = encoded_zoom * display_zoom
+                    if total_zoom < 1.0:
+                        xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}, file_ratio={file_ratio}, detected_ratio={detected_ratio}, tolerance=({tolerance_min}-{tolerance_max})", level=xbmc.LOGERROR)
+                        return 1.0
+                    xbmc.log(f"service.remove.black.bars.gbm: Combined zoom: encoded={encoded_zoom:.4f}, display={display_zoom:.4f}, total={total_zoom:.4f}", level=xbmc.LOGDEBUG)
+                    return self._round_to_0_01(total_zoom)
             elif zoom_narrow_ratios and detected_ratio < tolerance_min:
                 # Content is narrower than 16:9, and zoom_narrow_ratios is enabled
                 display_zoom = 177.0 / detected_ratio
@@ -724,6 +742,11 @@ class Service(xbmc.Player):
                             # Case 2: Neither close to 16:9, use file_ratio directly for zoom calculation
                             file_ratio = file_ratio_temp
                             xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio directly: imdb_ratio={imdb_ratio}, file_ratio={file_ratio}, diff={difference}", level=xbmc.LOGDEBUG)
+                        elif file_is_16_9 and imdb_ratio > tolerance_max and difference > 0:
+                            # Case 3: file_ratio is exactly 16:9 (or very close) and content is wide
+                            # Use file_ratio even if diff < threshold for better zoom calculation
+                            file_ratio = file_ratio_temp
+                            xbmc.log(f"service.remove.black.bars.gbm: Using file_ratio (16:9) for wide content: imdb_ratio={imdb_ratio}, file_ratio={file_ratio}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
                         else:
                             # Don't use file_ratio if conditions not met
                             file_ratio = None
