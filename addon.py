@@ -675,6 +675,7 @@ class Service(xbmc.Player):
             imdb_enabled, _ = self._read_settings()
             imdb_ratio = None
             file_ratio = None
+            file_ratio_detected = None  # Always store detected file_ratio for logging, even if not used
             encoded_black_bars_detected = False
             
             if imdb_enabled:
@@ -697,6 +698,8 @@ class Service(xbmc.Player):
                 if imdb_ratio:
                     file_ratio_temp = self.kodi.get_aspect_ratio(video_info_tag, reason="for encoded black bars detection", player=self)
                     if file_ratio_temp:
+                        file_ratio_detected = file_ratio_temp  # Always store for logging
+                    if file_ratio_temp:
                         difference = abs(file_ratio_temp - imdb_ratio)
                         threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
                         
@@ -709,7 +712,7 @@ class Service(xbmc.Player):
                         file_is_16_9 = tolerance_min <= file_ratio_temp <= tolerance_max
                         content_is_16_9 = tolerance_min <= imdb_ratio <= tolerance_max
                         
-                        if difference > threshold and (file_is_16_9 or content_is_16_9):
+                        if difference >= threshold and (file_is_16_9 or content_is_16_9):
                             # Case 1: Encoded black bars or content/file close to 16:9
                             file_ratio = file_ratio_temp
                             if file_is_16_9 and not content_is_16_9:
@@ -723,7 +726,7 @@ class Service(xbmc.Player):
                         else:
                             # Don't use file_ratio if conditions not met
                             file_ratio = None
-                            if difference > threshold:
+                            if difference >= threshold:
                                 xbmc.log(f"service.remove.black.bars.gbm: Difference detected but conditions not met: imdb_ratio={imdb_ratio}, file_ratio={file_ratio_temp}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
                             else:
                                 xbmc.log(f"service.remove.black.bars.gbm: No significant difference: imdb_ratio={imdb_ratio}, file_ratio={file_ratio_temp}, diff={difference}, threshold={threshold}", level=xbmc.LOGDEBUG)
@@ -733,6 +736,7 @@ class Service(xbmc.Player):
                 xbmc.log("service.remove.black.bars.gbm: IMDb unavailable, using Kodi metadata fallback", level=xbmc.LOGDEBUG)
                 file_ratio = self.kodi.get_aspect_ratio(video_info_tag, reason="for ratio detection", player=self)
                 if file_ratio:
+                    file_ratio_detected = file_ratio
                     xbmc.log(f"service.remove.black.bars.gbm: Kodi metadata: file_ratio={file_ratio}", level=xbmc.LOGDEBUG)
 
             # Return tuple (detected_ratio, file_ratio, title_display)
@@ -755,13 +759,15 @@ class Service(xbmc.Player):
                         case_type = "movie"  # Default fallback
                     
                     # Build JSONL case entry (without ideal_zoom, to be filled manually)
+                    # Use file_ratio_detected if file_ratio is None (for logging purposes)
+                    file_ratio_for_log = file_ratio if file_ratio is not None else file_ratio_detected
                     case_data = {
                         "title": title,
                         "year": year,
                         "type": case_type,
                         "imdb_id": imdb_number,
                         "imdb_ratio": imdb_ratio,
-                        "file_ratio": file_ratio,
+                        "file_ratio": file_ratio_for_log,
                         "ideal_zoom": None  # To be filled manually
                     }
                     # Format compact JSON (no spaces) to match CASES.jsonl format
