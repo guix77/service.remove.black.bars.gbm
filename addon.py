@@ -112,14 +112,15 @@ class KodiMetadataProvider:
         try:
             reason_text = f" ({reason})" if reason else ""
             
-            # Retry up to 3 times with small delays (resolution may not be available immediately)
-            max_retries = 3
-            retry_delay_ms = 100  # 100ms between retries
+            # Retry up to 5 times with increasing delays (resolution may not be available immediately)
+            max_retries = 5
+            base_delay_ms = 200  # Start with 200ms, increase with each retry
             
             for attempt in range(max_retries):
                 if attempt > 0:
-                    # Wait a bit before retrying
-                    xbmc.sleep(retry_delay_ms)
+                    # Wait progressively longer before retrying
+                    delay = base_delay_ms * attempt
+                    xbmc.sleep(delay)
                 
                 # Get resolution using JSON-RPC Player.GetItem with streamdetails
                 json_cmd = json.dumps({
@@ -137,34 +138,51 @@ class KodiMetadataProvider:
                     # Check for errors first
                     if "error" in result_json:
                         error_msg = result_json.get("error", {}).get("message", "Unknown error")
+                        error_code = result_json.get("error", {}).get("code", "?")
                         if attempt == max_retries - 1:
-                            xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error after {max_retries} attempts{reason_text}: {error_msg}", level=xbmc.LOGDEBUG)
+                            xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC error after {max_retries} attempts{reason_text}: [{error_code}] {error_msg}", level=xbmc.LOGDEBUG)
                         continue
                     # Extract width/height from streamdetails.video[0]
                     if "result" in result_json and "item" in result_json["result"]:
                         item = result_json["result"]["item"]
-                        if "streamdetails" in item and "video" in item["streamdetails"]:
-                            video_streams = item["streamdetails"]["video"]
-                            if video_streams and len(video_streams) > 0:
-                                video_stream = video_streams[0]
-                                if "width" in video_stream and "height" in video_stream:
-                                    width = video_stream["width"]
-                                    height = video_stream["height"]
-                                    if width and height and width > 0 and height > 0:
-                                        ratio = int((width / float(height)) * 100)
-                                        # Validate ratio
-                                        if MIN_VALID_RATIO <= ratio <= MAX_VALID_RATIO:
-                                            if attempt > 0:
-                                                xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio} (after {attempt + 1} attempts)", level=xbmc.LOGDEBUG)
+                        if "streamdetails" in item:
+                            if "video" in item["streamdetails"]:
+                                video_streams = item["streamdetails"]["video"]
+                                if video_streams and len(video_streams) > 0:
+                                    video_stream = video_streams[0]
+                                    if "width" in video_stream and "height" in video_stream:
+                                        width = video_stream["width"]
+                                        height = video_stream["height"]
+                                        if width and height and width > 0 and height > 0:
+                                            ratio = int((width / float(height)) * 100)
+                                            # Validate ratio
+                                            if MIN_VALID_RATIO <= ratio <= MAX_VALID_RATIO:
+                                                if attempt > 0:
+                                                    xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio} (after {attempt + 1} attempts)", level=xbmc.LOGDEBUG)
+                                                else:
+                                                    xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio}", level=xbmc.LOGDEBUG)
+                                                return ratio
                                             else:
-                                                xbmc.log(f"service.remove.black.bars.gbm: Calculated from resolution via JSON-RPC{reason_text}: {width}x{height} = {ratio}", level=xbmc.LOGDEBUG)
-                                            return ratio
-                                        else:
-                                            xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio from resolution: {ratio} ({width}x{height})", level=xbmc.LOGDEBUG)
-                                            break  # Don't retry if ratio is invalid
+                                                xbmc.log(f"service.remove.black.bars.gbm: Invalid ratio from resolution: {ratio} ({width}x{height})", level=xbmc.LOGDEBUG)
+                                                break  # Don't retry if ratio is invalid
+                                    else:
+                                        if attempt == max_retries - 1:
+                                            xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC streamdetails.video[0] missing width/height after {max_retries} attempts{reason_text}. Video stream keys: {list(video_stream.keys())}", level=xbmc.LOGDEBUG)
+                                else:
+                                    if attempt == max_retries - 1:
+                                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC streamdetails.video is empty after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
+                            else:
+                                if attempt == max_retries - 1:
+                                    xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC streamdetails missing 'video' key after {max_retries} attempts{reason_text}. Streamdetails keys: {list(item['streamdetails'].keys())}", level=xbmc.LOGDEBUG)
+                        else:
+                            if attempt == max_retries - 1:
+                                # Last attempt failed, log the full result for debugging
+                                item_keys = list(item.keys()) if item else []
+                                xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no streamdetails after {max_retries} attempts{reason_text}. Item keys: {item_keys}", level=xbmc.LOGDEBUG)
                     elif attempt == max_retries - 1:
                         # Last attempt failed, log the full result for debugging
-                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no streamdetails after {max_retries} attempts{reason_text}. Result keys: {list(result_json.get('result', {}).keys())}", level=xbmc.LOGDEBUG)
+                        result_keys = list(result_json.get('result', {}).keys()) if 'result' in result_json else []
+                        xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no 'item' after {max_retries} attempts{reason_text}. Result keys: {result_keys}", level=xbmc.LOGDEBUG)
                 elif attempt == max_retries - 1:
                     # Last attempt failed, log the error
                     xbmc.log(f"service.remove.black.bars.gbm: JSON-RPC returned no result after {max_retries} attempts{reason_text}", level=xbmc.LOGDEBUG)
