@@ -127,6 +127,10 @@ class MockXbmc:
         """Mock pour executeJSONRPC"""
         pass
     
+    def sleep(self, milliseconds):
+        """Mock pour xbmc.sleep - ne fait rien dans les tests"""
+        pass
+    
     class Monitor:
         """Mock pour xbmc.Monitor"""
         def __init__(self):

@@ -112,15 +112,21 @@ class KodiMetadataProvider:
         try:
             reason_text = f" ({reason})" if reason else ""
             
-            # Retry up to 5 times with increasing delays (resolution may not be available immediately)
-            max_retries = 5
-            base_delay_ms = 200  # Start with 200ms, increase with each retry
+            # Retry up to 8 times with increasing delays (resolution may not be available immediately)
+            max_retries = 8
+            base_delay_ms = 300  # Start with 300ms, increase with each retry
+            
+            # Add initial delay before first attempt (streamdetails may not be ready immediately)
+            xbmc.sleep(100)
             
             for attempt in range(max_retries):
                 if attempt > 0:
                     # Wait progressively longer before retrying
                     delay = base_delay_ms * attempt
+                    xbmc.log(f"service.remove.black.bars.gbm: Retry {attempt + 1}/{max_retries} to get file_ratio{reason_text} (waiting {delay}ms)", level=xbmc.LOGDEBUG)
                     xbmc.sleep(delay)
+                else:
+                    xbmc.log(f"service.remove.black.bars.gbm: Attempt {attempt + 1}/{max_retries} to get file_ratio{reason_text}", level=xbmc.LOGDEBUG)
                 
                 # Get resolution using JSON-RPC Player.GetItem with streamdetails
                 json_cmd = json.dumps({
@@ -189,6 +195,8 @@ class KodiMetadataProvider:
         except Exception as e:
             xbmc.log(f"service.remove.black.bars.gbm: Error getting resolution via JSON-RPC{reason_text}: {e}", level=xbmc.LOGDEBUG)
         
+        # Log final failure with more details
+        xbmc.log(f"service.remove.black.bars.gbm: Failed to get file_ratio after {max_retries} attempts{reason_text}. This will cause incorrect zoom calculation if encoded black bars are present!", level=xbmc.LOGDEBUG)
         return None
 
 
@@ -495,6 +503,10 @@ class ZoomApplier:
             xbmc.log(f"service.remove.black.bars.gbm: No zoom needed: file_ratio={file_ratio} within 16:9 tolerance ({tolerance_min}-{tolerance_max})", level=xbmc.LOGDEBUG)
             return 1.0
         
+        # Log when file_ratio is None (important for debugging)
+        if file_ratio is None:
+            xbmc.log(f"service.remove.black.bars.gbm: Calculating zoom without file_ratio (detected_ratio={detected_ratio}). This may be incorrect if encoded black bars are present!", level=xbmc.LOGDEBUG)
+        
         # Calculate zoom for display black bars only
         if detected_ratio > 177:
             display_zoom = detected_ratio / 177.0
@@ -534,8 +546,10 @@ class ZoomApplier:
             xbmc.log(f"service.remove.black.bars.gbm: Applying zoom {zoom_amount:.2f} on {title_display} to remove black bars", level=xbmc.LOGINFO)
             if file_ratio and file_ratio != detected_ratio:
                 xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file_ratio={file_ratio}, detected_ratio={detected_ratio}, zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
+            elif file_ratio is None:
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file_ratio=None (not available), detected_ratio={detected_ratio}, zoom={zoom_amount:.4f} (may be incorrect if encoded black bars present)", level=xbmc.LOGDEBUG)
             else:
-                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: detected_ratio={detected_ratio}, zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
+                xbmc.log(f"service.remove.black.bars.gbm: Zoom calculation: file_ratio={file_ratio} (same as detected_ratio), detected_ratio={detected_ratio}, zoom={zoom_amount:.4f}", level=xbmc.LOGDEBUG)
             
             # Set zoom via player's _set_zoom method
             if not player._set_zoom(zoom_amount):
@@ -718,6 +732,9 @@ class Service(xbmc.Player):
                     file_ratio_temp = self.kodi.get_aspect_ratio(video_info_tag, reason="for encoded black bars detection", player=self)
                     if file_ratio_temp:
                         file_ratio_detected = file_ratio_temp  # Always store for logging
+                        xbmc.log(f"service.remove.black.bars.gbm: file_ratio retrieved: {file_ratio_temp} (imdb_ratio={imdb_ratio})", level=xbmc.LOGDEBUG)
+                    else:
+                        xbmc.log(f"service.remove.black.bars.gbm: file_ratio is None (imdb_ratio={imdb_ratio}). Zoom calculation will use detected_ratio only, may be incorrect!", level=xbmc.LOGDEBUG)
                     if file_ratio_temp:
                         difference = abs(file_ratio_temp - imdb_ratio)
                         threshold = max(5, int(imdb_ratio * 0.05))  # 5% of IMDb ratio, minimum 5
