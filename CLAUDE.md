@@ -3,7 +3,7 @@
 ## Tests
 
 ```
-uv run --with pytest pytest tests/ -v
+uv run --with pytest --with requests pytest tests/ -v
 ```
 
 ## Python tooling

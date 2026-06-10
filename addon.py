@@ -455,26 +455,13 @@ class ZoomApplier:
                 xbmc.log(f"service.remove.black.bars.gbm: Encoded zoom only: {encoded_zoom:.4f} (content is 16:9, no display bars)", level=xbmc.LOGDEBUG)
                 return self._round_to_0_01(encoded_zoom)
             elif detected_ratio > tolerance_max:
-                # Content is wider than 16:9, need additional zoom for display bars
-                # Special case: if file_ratio is exactly 16:9 (177) and detected_ratio is around 185
-                # Use geometric mean of direct zoom and combined zoom for better accuracy
-                # Geometric mean: sqrt(zoom_direct * zoom_combined)
-                # This handles cases like "Superman" where file_ratio=177 (exactly 16:9) and detected_ratio=185
-                # Justification: geometric mean gives the zoom that, when applied, produces the same result
-                # as applying direct zoom and combined zoom in sequence
-                if file_is_16_9 and file_ratio == 177 and 180 <= detected_ratio <= 190:
-                    # Use geometric mean for file_ratio exactly 16:9 (177) and detected_ratio around 185
-                    import math
-                    zoom_direct = detected_ratio / 177.0
-                    zoom_combined = encoded_zoom * (detected_ratio / 177.0)
-                    geometric_mean_zoom = math.sqrt(zoom_direct * zoom_combined)
-                    xbmc.log(f"service.remove.black.bars.gbm: Geometric mean zoom for file_ratio exactly 16:9: direct={zoom_direct:.4f}, combined={zoom_combined:.4f}, geometric={geometric_mean_zoom:.4f} (file_ratio={file_ratio}, detected_ratio={detected_ratio})", level=xbmc.LOGDEBUG)
-                    if geometric_mean_zoom < 1.0:
-                        xbmc.log(f"service.remove.black.bars.gbm: ERROR: Invalid zoom < 1.0 calculated: {geometric_mean_zoom:.4f}", level=xbmc.LOGERROR)
-                        return 1.0
-                    return self._round_to_0_01(geometric_mean_zoom)
+                if file_ratio == 177:
+                    # File is exactly 16:9: fills the screen with no display bars.
+                    # Only remove encoded bars.
+                    xbmc.log(f"service.remove.black.bars.gbm: Encoded bars only (file is exact 16:9): encoded_zoom={encoded_zoom:.4f}", level=xbmc.LOGDEBUG)
+                    return self._round_to_0_01(encoded_zoom)
                 else:
-                    # Standard calculation: use 177 as reference
+                    # File is close to 16:9 but not exact: combined encoded + display zoom
                     display_zoom = detected_ratio / 177.0
                     total_zoom = encoded_zoom * display_zoom
                     if total_zoom < 1.0:

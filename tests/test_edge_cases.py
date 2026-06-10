@@ -38,13 +38,10 @@ def test_calculate_zoom_file_ratio_exactly_16_9(zoom):
     zoom_value = zoom._calculate_zoom(177, file_ratio=177)
     assert zoom_value == 1.0  # No zoom needed
     
-    # If file_ratio is 16:9 but detected_ratio is different, calculate encoded bars zoom
+    # If file_ratio is exactly 16:9 (177) but detected_ratio is different:
+    # file fills screen with no display bars → only encoded bars to remove
     zoom_value = zoom._calculate_zoom(235, file_ratio=177)
-    # This shouldn't happen in practice (file_ratio only passed if encoded bars detected)
-    # But if it does, we calculate zoom for encoded bars
-    encoded_zoom = 235 / 177.0
-    display_zoom = 235 / 177.0
-    expected = encoded_zoom * display_zoom
+    expected = 235 / 177.0  # encoded bars only
     assert abs(zoom_value - expected) < 0.01
 
 
