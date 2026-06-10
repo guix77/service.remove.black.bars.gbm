@@ -632,7 +632,11 @@ class Service(xbmc.Player):
             zoom_narrow_ratios = self._addon.getSetting("zoom_narrow_ratios") == "true"
         except Exception:
             zoom_narrow_ratios = False
-        return imdb_enabled, zoom_narrow_ratios
+        try:
+            skip_catchup_tv = self._addon.getSetting("skip_catchup_tv") != "false"
+        except Exception:
+            skip_catchup_tv = True
+        return imdb_enabled, zoom_narrow_ratios, skip_catchup_tv
 
     def _get_cache_enabled(self):
         """Check if cache is enabled in settings."""
@@ -673,7 +677,7 @@ class Service(xbmc.Player):
 
             title, year = self._extract_title_year(video_info_tag)
 
-            # Get IMDb number from JSON-RPC (more reliable than title search)
+            # Get IMDb number and file path from JSON-RPC
             imdb_number = None
             try:
                 json_cmd = json.dumps({
@@ -681,7 +685,7 @@ class Service(xbmc.Player):
                     "method": "Player.GetItem",
                     "params": {
                         "playerid": 1,
-                        "properties": ["uniqueid"]
+                        "properties": ["uniqueid", "file"]
                     },
                     "id": 1
                 })
@@ -691,21 +695,28 @@ class Service(xbmc.Player):
                     if "result" in result_json and "item" in result_json["result"]:
                         item = result_json["result"]["item"]
                         item_type = item.get("type")
+                        file_path = item.get("file", "")
+
+                        _, _, skip_catchup_tv = self._read_settings()
+                        if skip_catchup_tv and "catchuptvandmore" in file_path:
+                            xbmc.log("service.remove.black.bars.gbm: Zoom skipped: Catch-up TV source detected", level=xbmc.LOGINFO)
+                            return None
+
                         if item_type in ("movie", "episode") and "uniqueid" in item and "imdb" in item["uniqueid"]:
                             imdb_number = item["uniqueid"]["imdb"]
             except Exception:
                 pass
-            
+
             # Format title for logging
             title_display = title or "Unknown"
             if year:
                 title_display = f"{title_display} ({year})"
-            
+
             xbmc.log(f"service.remove.black.bars.gbm: Detecting black bars for {title_display}", level=xbmc.LOGINFO)
             xbmc.log(f"service.remove.black.bars.gbm: Detection: title='{title}', year={year}, imdb_id={imdb_number}", level=xbmc.LOGDEBUG)
 
             # 1) IMDb (first priority, cache only IMDb results)
-            imdb_enabled, _ = self._read_settings()
+            imdb_enabled, _, _ = self._read_settings()
             imdb_ratio = None
             file_ratio = None
             file_ratio_detected = None  # Always store detected file_ratio for logging, even if not used
@@ -842,7 +853,7 @@ class Service(xbmc.Player):
             result = self._detect_aspect_ratio()
             if result:
                 detected_ratio, file_ratio, title_display = result
-                _, zoom_narrow_ratios = self._read_settings()
+                _, zoom_narrow_ratios, _ = self._read_settings()
                 self.zoom.apply_zoom(detected_ratio, self, zoom_narrow_ratios, file_ratio, title_display)
             else:
                 xbmc.log("service.remove.black.bars.gbm: Zoom skipped: no aspect ratio detected", level=xbmc.LOGDEBUG)

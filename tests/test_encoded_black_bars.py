@@ -62,7 +62,7 @@ def setup_test():
     addon_module.getOriginalAspectRatio = original_getOriginalAspectRatio
 
 
-def mock_executeJSONRPC(imdb_number=None, file_ratio=None):
+def mock_executeJSONRPC(imdb_number=None, file_ratio=None, file_path=None):
     """Helper pour mocker executeJSONRPC (gère à la fois Player.GetItem pour uniqueid et streamdetails)"""
     import json
     def mock_func(command):
@@ -70,24 +70,25 @@ def mock_executeJSONRPC(imdb_number=None, file_ratio=None):
         if cmd.get("method") == "Player.GetItem":
             params = cmd.get("params", {})
             properties = params.get("properties", [])
-            
+
             # Build base result
             result = {
                 "jsonrpc": "2.0",
                 "id": 1,
                 "result": {
                     "item": {
-                        "type": "movie"
+                        "type": "movie",
+                        "file": file_path or ""
                     }
                 }
             }
-            
+
             # Handle uniqueid property
             if "uniqueid" in properties:
                 result["result"]["item"]["uniqueid"] = {}
                 if imdb_number:
                     result["result"]["item"]["uniqueid"]["imdb"] = imdb_number
-            
+
             # Handle streamdetails property
             if "streamdetails" in properties:
                 if file_ratio:
@@ -104,7 +105,7 @@ def mock_executeJSONRPC(imdb_number=None, file_ratio=None):
                     result["result"]["item"]["streamdetails"] = {
                         "video": []
                     }
-            
+
             return json.dumps(result)
         return json.dumps({"jsonrpc": "2.0", "id": 1, "result": {}})
     addon_module.xbmc.executeJSONRPC = mock_func
@@ -283,6 +284,48 @@ def test_vertical_encoded_bars_narrower_file():
     expected = encoded_zoom * display_zoom
     assert abs(zoom_value - expected) < 0.01, f"Zoom should be {expected:.3f}, got {zoom_value:.3f}"
     assert zoom_value > 1.0, "Zoom should be greater than 1.0 to remove vertical encoded bars"
+
+
+def test_skip_catchup_tv_source():
+    """Zoom skippé si le fichier provient de CatchupTV and More (setting activé par défaut)"""
+    catchup_url = "plugin://plugin.video.catchuptvandmore/france2/replay/emission.m3u8"
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=178, file_path=catchup_url)
+
+    service = Service()
+    video_tag = MockVideoInfoTag(title="Journal de 20h", year=2026)
+    service.isPlayingVideo = lambda: True
+    service.getVideoInfoTag = lambda: video_tag
+    service.cache.get = lambda *args, **kwargs: None
+
+    result = service._detect_aspect_ratio()
+    assert result is None, "Should return None for CatchupTV source"
+
+
+def test_no_skip_catchup_tv_when_setting_disabled():
+    """Zoom appliqué normalement si le setting skip_catchup_tv est désactivé"""
+    catchup_url = "plugin://plugin.video.catchuptvandmore/france2/replay/emission.m3u8"
+    mock_executeJSONRPC(imdb_number="tt1234567", file_ratio=178, file_path=catchup_url)
+
+    mock_addon = mock_kodi.MockAddon(settings={
+        "enable_imdb": "true",
+        "enable_cache": "false",
+        "zoom_narrow_ratios": "false",
+        "skip_catchup_tv": "false"
+    })
+    sys.modules['xbmcaddon'].Addon = lambda: mock_addon
+    if hasattr(addon_module, 'xbmcaddon'):
+        addon_module.xbmcaddon.Addon = lambda: mock_addon
+
+    service = Service()
+    service._addon = mock_addon
+    video_tag = MockVideoInfoTag(title="Journal de 20h", year=2026)
+    service.isPlayingVideo = lambda: True
+    service.getVideoInfoTag = lambda: video_tag
+    service.cache.get = lambda *args, **kwargs: None
+    service.imdb.get_aspect_ratio = lambda title, imdb_number=None: 178
+
+    result = service._detect_aspect_ratio()
+    assert result is not None, "Should not skip when setting is disabled"
 
 
 def test_no_encoded_bars_if_file_not_16_9():
